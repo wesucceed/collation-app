@@ -1,0 +1,263 @@
+######### ENDPOINTS ########
+
+@app.route("/register/", methods=["POST"])
+def register_account():
+    """
+    Endpoint for registering a new user
+    """
+    body = json.loads(request.data)
+    email = body.get("email")
+    password = body.get("password")
+    address = body.get("address")
+    name = body.get("name")
+    major = body.get("major")
+
+    if email is None or password is None or  address is None or name is None or major is None:  
+        return failure_response("invalid inputs", 400)
+    
+    created, user = users_dao.create_user(name, email, password, address, major)
+    
+    if not created:
+        return failure_response("User already exists", 400)
+    res = user.serialize()
+    res.update({   
+            "name" : user.name,
+            "address" : user.address,
+            "session_token" : user.session_token,
+            "session_expiration" : str(user.session_expiration),
+            "update_token" : user.update_token
+        })
+    return success_response(res)
+
+
+
+@app.route("/major/", methods=["GET"])
+def get_partners_by_major():
+    """
+    Endpoint for getting partners by major
+    """
+    body = json.loads(request.data)
+    major = body.get("major")
+
+    if major is None:
+        return failure_response("Invalid inputs!")
+    
+    users = users_dao.get_user_by_major(major)
+
+    if users is None:
+        pass
+    else:
+        res = []
+        for user in users:
+            res.append(user.serialize())
+        return success_response({"users" : res})
+
+
+@app.route("/registeradmin/", methods = ["POST"])
+def register_admin():
+    """
+    Endpoint to register an admin
+    """
+    # get request args
+    body = json.loads(request.data)
+    name, phone_number = body.get("name"), body.get("phone number")
+
+    # if some inuts are invalid
+    if not (name and phone_number):
+        return failure_response("Invalid inputs", 400)
+    
+    created, admin = users_dao.create_admin(name, phone_number)
+
+    # if admin already exists
+    if not created:
+        return failure_response("Admin already exists", 400)
+    
+    res = admin.serialize()
+
+    return success_response(res, 201)
+
+
+
+@app.route("/registerpollingstation/", methods = ["POST"])
+def register_polling_station():
+    """
+    Endpoint to register polling station
+    """
+    # Get request args
+    body = json.loads(request.data)
+    name, number, constituency, region = body.get("name"), body.get("number"), body.get("constituency"), body.get("region")
+
+    # if some inputs are not invalid
+    if not (name and number and constituency and region):
+        return failure_response("Invalid inputs", 400)
+    
+    created, polling_station = users_dao.create_polling_station(name, number, constituency, region)
+
+    # if polling station already exists
+    if not created:
+        return failure_response("Polling station already exists", 400)
+    
+    res = polling_station.serialize()
+
+    return success_response(res, 201)
+
+
+
+@app.route("/registerpollingagent/", methods = ["POST"])
+def register_polling_agent():
+    """
+    Endpoint to register polling agent
+    """
+    body = json.loads(request.data)
+    name, phone_number = body.get("name"), body.get("phone number")
+    if not (name and phone_number):
+        return failure_response("Invalid inputs", 400)
+
+    created, polling_agent = users_dao.create_polling_agent(name, phone_number)
+
+    if not created:
+        return failure_response("Polling agent already exists", 400)
+
+    res = polling_agent.serialize()
+
+    return success_response(res, 201)
+
+
+
+@app.route("/adminlogin/", methods=["POST"])
+def login_by_admin():
+    """
+    Endpoint for logging in an admin
+    """
+    body = json.loads(request.data)
+    email = body.get("email")
+    password = body.get("password")
+    
+    if email is None or password is None:
+        return failure_response("Invalid inputs!")
+    
+    success, user = users_dao.verify_credentials(email, password)
+
+    if not success:
+        return failure_response("Incorrect email or password!")
+    
+    return success_response(
+        {
+            "session_token" : user.session_token,
+            "session_expiration" : str(user.session_expiration),
+            "update_token" : user.update_token
+        }
+    )
+
+
+@app.route("/adminlogout/", methods=["POST"])
+def logout_by_admin():
+    """
+    Endpoint for logging out an admin
+    """
+    success, session_token = extract_token(request)
+    if not success:
+        return session_token
+    
+    user = users_dao.get_user_by_session_token(session_token)
+    if not user or not user.verify_session_token(session_token):
+        return failure_response("Invalid session token!", 400)
+    user.session_expiration = datetime.datetime.now()
+    db.session.commit()
+    return success_response({"message" : "User has successfully logged out!"})
+
+
+##### NON ENDPOINTS #####
+
+def create_polling_agent(name, phone_number):
+    """
+    Creates a Polling Agent
+
+    Returns false, if polling agent already exists, otherwise true
+    """
+    polling_agent = get_polling_agent(name, phone_number)
+
+    if polling_agent is not None:
+        return False, polling_agent
+    
+    polling_agent = Polling_Agent(name = name, phone_number = phone_number)
+
+    db.session.add(polling_agent)
+    db.session.commit()
+
+    return True, polling_agent
+
+
+
+
+##### DATA BASE #####
+
+class Admin(db.Model):
+    """
+    Admin Model
+    """
+
+    __tablename__ = "admins"
+
+    # Admin attributes
+    name = db.Column(db.String, nullable = False)
+    phone_number = db.Column(db.String, nullable = False, unique = True)
+    password_digest = db.Column(db.String, nullable=False)
+
+    # Session information
+    session_token = db.Column(db.String, nullable=False, unique=True)
+    session_expiration = db.Column(db.DateTime, nullable=False)
+    update_token = db.Column(db.String, nullable=False, unique=True)
+
+    # Polling station result
+    polling_station_results = db.relationship("Polling_station_result", 
+                                             secondary = admins_polling_station_results_association_table,
+                                             back_populates = "admins")
+
+
+    def __init__(self, **kwargs):
+        """
+        Initializes an admin object
+        """
+        self.name = kwargs.get("name")
+        self.phone_number = kwargs.get("phone number")
+        password = kwargs.get("phone number") + kwargs.get("firstname") + kwargs.get("lastname")
+        self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
+        self.renew_session()
+
+    def simple_serialize(self):
+        """
+        Serialzes an admin without results
+        """
+        return {
+            "name" : self.name,
+            "phone number" : self.phone_number
+        }
+    
+    def serialize(self):
+        """
+        Serializes an admin
+        """
+        return {
+            "name" : self.name,
+            "phone number" : self.phone_number,
+            "polling station results" : [result.serialize() for result in self.polling_station_results]
+        }
+    
+
+admins_polling_station_results_association_table = db.Table(
+    "admin_polling_station_results",
+    db.Column("polling_station_results_id", db.Integer, db.ForeignKey("polling_station_results.id")),
+    db.Column("admins_id", db.Integer, db.ForeignKey("admins.id"))
+    )
+
+admins_df = read_excel('admins.xlsx')
+admins_df.to_sql("admins", con = engine, if_exists = 'append', index = False, chunksize = 1000)
+
+
+# Admins edit
+admins = db.relationship("Admin", 
+                            secondary = admins_polling_station_results_association_table, 
+                            back_populates = "polling_station_result")
+
+"admins" : [admin.simple_serialize() for admin in self.admins]

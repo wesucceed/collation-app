@@ -1,15 +1,13 @@
 import json
-from smtplib import SMTP
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 import os
 
 from db import db
+from db import load_excel
 from flask import Flask, request
 import users_dao
 import datetime
 
-db_filename = "auth.db"
+db_filename = "collation.db"
 app = Flask(__name__)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///%s" % db_filename
@@ -18,8 +16,10 @@ app.config["SQLALCHEMY_ECHO"] = True
 
 db.init_app(app)
 with app.app_context():
+    db.drop_all()
     db.create_all()
-
+    load_excel()
+    
 # generalized response formats
 def success_response(data, code=200):
     """
@@ -51,64 +51,178 @@ def extract_token(request):
 @app.route("/")
 def hello_world():
     """
-    Endpoint for printing Hello World!
+    Endpoint for testing server
     """
     return "Hello, " + os.environ.get("ACTIVE")
 
 
-@app.route("/register/", methods=["POST"])
-def register_account():
+@app.route("/submitresult/", methods = ["POST"])
+def submit_result():
     """
-    Endpoint for registering a new user
+    Endpoint to create a result
     """
-    body = json.loads(request.data)
-    email = body.get("email")
-    password = body.get("password")
-    address = body.get("address")
-    name = body.get("name")
-    major = body.get("major")
+    # verify session
 
-    if email is None or password is None or  address is None or name is None or major is None:  
-        return failure_response("invalid inputs", 400)
-    
-    created, user = users_dao.create_user(name, email, password, address, major)
+    # get inputs
+    body = json.loads(request.data)
+    data, total_rejected_ballots, total_votes_cast, total_valid_ballots, pink_sheet, polling_agent_name, phone_number = body.get("data"),
+    body.get("total rejected ballots"), body.get("total votes cast"), body.get("total valid ballots"). body.get("pinksheet"), body.get("polling agent name"),
+    body.get("polling agent phone number")
+
+    # do some verifications
+    polling_station_id, polling_agent_id = None, None
+
+    # make pinksheet in right format
+
+    created, polling_station_result = users_dao.create_polling_station_result(data = data, 
+                                                                              total_votes_casts = total_votes_cast, 
+                                                                              total_rejected_ballots = total_rejected_ballots,
+                                                                              total_valid_ballots = total_valid_ballots,
+                                                                              pink_sheet  = pink_sheet,
+                                                                              polling_agent_id = polling_agent_id,
+                                                                              polling_station_id = polling_station_id)
     
     if not created:
-        return failure_response("User already exists", 400)
-    res = user.serialize()
-    res.update({   
-            "name" : user.name,
-            "address" : user.address,
-            "session_token" : user.session_token,
-            "session_expiration" : str(user.session_expiration),
-            "update_token" : user.update_token
-        })
-    return success_response(res)
+        return failure_response("Results already exists", 400)
+    
+    res = polling_station_result.serialize()
 
-@app.route("/login/", methods=["POST"])
-def login():
+    return success_response(res, 201)
+
+
+################################################################
+#####################GET REQUESTS################################  
+
+
+@app.route("/sendconstituencyresults/")
+def send_results_by_constituency():
     """
-    Endpoint for logging in a user
+    Endpoint to get results by constituency
     """
     body = json.loads(request.data)
-    email = body.get("email")
-    password = body.get("password")
-    
-    if email is None or password is None:
-        return failure_response("Invalid inputs!")
-    
-    success, user = users_dao.verify_credentials(email, password)
+    constituency_name = body.get("constituency name")
+
+    if constituency_name is None:
+        return failure_response("Invalid inputs")
+    success, res = users_dao.get_result_by_constituency(name = constituency_name)
 
     if not success:
-        return failure_response("Incorrect email or password!")
+        return failure_response("Constituency does not exists")
     
-    return success_response(
-        {
-            "session_token" : user.session_token,
-            "session_expiration" : str(user.session_expiration),
-            "update_token" : user.update_token
-        }
-    )
+    return success_response(res)
+
+
+@app.route("/sendallconstituencysresults/")
+def send_all_results_by_constituency():
+    """
+    Endpoint to get all results by constituency
+    """
+    body = json.loads(request.data)
+
+    success, res = users_dao.get_all_results_by_constituency()
+
+    if not success:
+        return failure_response("Failed to get results")
+    
+    return success_response(res)
+
+
+@app.route("/sendregionresults/")
+def send_results_by_region():
+    """
+    Endpoint to get results by region
+    """
+    body = json.loads(request.data)
+    region_name = body.get("region name")
+
+    if region_name is None:
+        return failure_response("Invalid inputs")
+    
+    success, res = users_dao.get_result_by_region(name = region_name)
+
+    if not success:
+        return failure_response("Region does not exists")
+    
+    return success_response(res)
+
+# @app.route("/sendallregionsresults/")
+# def send_all_results_by_region():  #questionable
+    """
+    Endpoint to get results by region
+    """
+
+# @app.route("/sendcandidatesresults/")
+# def send_results_by_candidate():
+#     """
+#     Endpoint to get results by candidate
+#     """
+
+# @app.route("/sendallcandidateresults/")
+# def send_all_results_by_candidate():
+#     """
+#     Endpoint to get results by candidate
+#     """
+
+###################################################################
+#######################POSTS REQUESTS##############################
+
+
+# @app.route("/pollingagentlogin/", methods=["POST"])
+# def login_by_polling_agent():
+#     """
+#     Endpoint for logging in a polling agent
+#     """
+#     # get login required inputs
+#     body = json.loads(request.data)
+#     constituency, polling_station_name, polling_station_number, polling_agent_name = body.get("region"),body.get("constituency"), 
+#     body.get("polling_station_name"), body.get("polling_station_number"), body.get("polling_agent_name")
+    
+
+#     # invalid inputs
+#     if not(region and constituency and polling_station_name and polling_station_number and polling_agent_name):
+#         return failure_response("Invalid inputs", 400)
+    
+#     #check if polling station exists
+#     existed, polling_station = users_dao.get_polling_station(polling_station_name, polling_station_number, constituency, region)
+#     if not existed:
+#         return failure_response("Polling station doesn't exists", 201)
+    
+#     # check if polling agent exists
+#     existed, polling_agent = users_dao.get_polling_agent_by_name(polling_agent_name)
+#     if not existed:
+#         return failure_response("Polling agent doesn't exists", 201)
+    
+#     # # verify polling agent
+#     # success, user = users_dao.verify_credentials(email, password)
+
+#     # if not success:
+#     #     return failure_response("Incorrect email or password!")
+    
+#     return success_response(
+#         {
+#             "session_token" : user.session_token,
+#             "session_expiration" : str(user.session_expiration),
+#             "update_token" : user.update_token
+#         }
+#     )
+
+
+@app.route("/pollingagentlogout/", methods=["POST"])
+def logout_by_polling_agent():
+    """
+    Endpoint for logging out a polling agent
+    """
+    success, session_token = extract_token(request)
+    if not success:
+        return session_token
+    
+    user = users_dao.get_user_by_session_token(session_token)
+    if not user or not user.verify_session_token(session_token):
+        return failure_response("Invalid session token!", 400)
+    user.session_expiration = datetime.datetime.now()
+    db.session.commit()
+    return success_response({"message" : "User has successfully logged out!"})
+
 
 
 @app.route("/session/", methods=["POST"])
@@ -155,176 +269,12 @@ def secret_message():
     return success_response({"message" : "Wow we implemented session token!!"}, 201)
 
 
-@app.route("/logout/", methods=["POST"])
-def logout():
-    """
-    Endpoint for logging out a user
-    """
-    success, session_token = extract_token(request)
-    if not success:
-        return session_token
-    
-    user = users_dao.get_user_by_session_token(session_token)
-    if not user or not user.verify_session_token(session_token):
-        return failure_response("Invalid session token!", 400)
-    user.session_expiration = datetime.datetime.now()
-    db.session.commit()
-    return success_response({"message" : "User has successfully logged out!"})
+# manipulate data
 
-@app.route("/address/", methods=["GET"])
-def get_partners_by_address():
-    """
-    Endpoint for getting partners by location
-    """
-    body = json.loads(request.data)
-    address = body.get("address")
+# filtering using keys
 
-    if address is None:
-        return failure_response("Invalid inputs!")
-    
-    users = users_dao.get_user_by_address(address)
-
-    if users is None:
-        pass
-    else:
-        res = []
-        for user in users:
-            res.append(user.serialize())
-        return success_response({"users" : res})
-
-
-@app.route("/major/", methods=["GET"])
-def get_partners_by_major():
-    """
-    Endpoint for getting partners by major
-    """
-    body = json.loads(request.data)
-    major = body.get("major")
-
-    if major is None:
-        return failure_response("Invalid inputs!")
-    
-    users = users_dao.get_user_by_major(major)
-
-    if users is None:
-        pass
-    else:
-        res = []
-        for user in users:
-            res.append(user.serialize())
-        return success_response({"users" : res})
-    
-    
-@app.route("/closest/", methods=["GET"])
-def get_closest_user():
-    """
-    Endpoint for getting partners by major
-    """
-    body = json.loads(request.data)
-    email = body.get("email")
-
-    if email is None:
-        return failure_response("Invalid inputs!")
-    user = users_dao.get_user_by_email(email)
-
-    if user is None:
-        return failure_response("user doesn't exists!")
-    user1 = users_dao.get_closest_user(user)
-
-    return success_response({"user" : user1.serialize()})
-
-
-@app.route("/request/", methods=["GET"])
-def request_partner():
-    """
-    Endpoint for requesting for a partner
-    """
-    body = json.loads(request.data)
-    sender_email = body.get("sender email")
-    receiver_email = body.get("receiver email")
-    if sender_email is None or receiver_email is None:
-        return failure_response("Invalid inputs!")
-    sender = users_dao.get_user_by_email(sender_email)
-    receiver = users_dao.get_user_by_email(receiver_email)
-
-    if sender is None or receiver is None:
-        return failure_response("User doesn't exists!")
-    
-    link = f"http://34.86.214.91/accept/{sender.id}/"
-
-    message = f""""
-    Dear {receiver.name}, 
-            {sender.name} has requested to be your study partner. Click the link below to accept partnership
-            link: {link}
-
-    Best regards,
-    We Study Team.
-    """
-
-    sent = send_email(sender, receiver, message)
-
-    if not sent:
-        return failure_response("Invalid inputs!")
-
-    return success_response({"message" : "Message sent!",
-                             "sent message" : message})
-
-
-@app.route("/accept/<int:partner_id>/", methods=["POST"])
-def accept_partner(partner_id):
-    """
-    Endpoint for accepting a partner
-    """
-    body = json.loads(request.data)
-    user1_email = body.get("email")
-
-    if user1_email is None:
-        return failure_response("Invalid inputs!", 400)
-    user1 = users_dao.get_user_by_email(user1_email)
-    user2 = users_dao.get_user_by_id(partner_id)
-
-    if user1 is None or user2 is None:
-        return failure_response("User doesn't exists!", 400)
-    if user1.email == user2.email or user1.accepted or user2.accepted:
-        return failure_response("Invalid inputs", 400)
-    
-    user1.partner = user2.email
-    user1.accepted = True
-    user2.partner = user1.email
-    user2.accepted = True
-    db.session.commit()
-
-    partners = [user1.serialize(), user2.serialize()]
-
-    return success_response({
-        "partners" : partners
-    }, 201)
-
-
-def send_email(sender, receiver, message):
-    """
-    Sends email 
-    """
-    msg = MIMEMultipart()
-    msg['From'] = sender.email
-    msg['To'] = receiver.email
-    msg['Subject'] = "LET'S STUDY TOGETHER😊"
-    body = message
-    msg.attach(MIMEText(body, 'plain'))
-
-    try:
-        server = SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(sender.email, os.environ.get("PASSWORD"))
-
-        server.sendmail(msg['From'], msg['To'], msg.as_string())
-
-        server.quit()
-
-        return True
-    except:
-         return False
-
+# if new data is added, notify, cache the result, get from previous id
+# what if more data submission made
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)

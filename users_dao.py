@@ -4,42 +4,36 @@ DAO (Data Access Object) file
 Helper file containing functions for accessing data in our database
 """
 
-from db import User
-from db import db
+from db import Polling_Agent
+from db import Polling_Station
+from db import Polling_Station_Result
+from db import Constituency
 import os
-from geopy.distance import distance
-import googlemaps
-gmaps = googlemaps.Client(key = os.environ.get("GOOGLEMAPKEY"))
+import db
 
 
-def get_user_by_email(email):
-    """
-    Returns a user object from the database given an email
-    """
-    return User.query.filter(User.email == email).first()
+
+# def get_user_by_session_token(session_token):
+#     """
+#     Returns a user object from the database given a session token
+#     """
+#     return User.query.filter(User.session_token == session_token).first()
 
 
-def get_user_by_session_token(session_token):
-    """
-    Returns a user object from the database given a session token
-    """
-    return User.query.filter(User.session_token == session_token).first()
+# def get_user_by_update_token(update_token):
+#     """
+#     Returns a user object from the database given an update token
+#     """
+#     return User.query.filter(User.update_token == update_token).first()
+
+# def get_user_by_id(id):
+#     """
+#     Returns user given an id
+#     """
+#     return User.query.filter(User.id == id).first()
 
 
-def get_user_by_update_token(update_token):
-    """
-    Returns a user object from the database given an update token
-    """
-    return User.query.filter(User.update_token == update_token).first()
-
-def get_user_by_id(id):
-    """
-    Returns user given an id
-    """
-    return User.query.filter(User.id == id).first()
-
-
-def verify_credentials(email, password):
+def verify_login_credentials(email, password):
     """
     Returns true if the credentials match, otherwise returns false
     """
@@ -50,78 +44,213 @@ def verify_credentials(email, password):
     
     return optional_user.verify_password(password), optional_user
 
-
-def create_user(name, email, password, address, major):
+def verify_submit_credentials(polling_agent_name, polling_agent_phone_number):
     """
-    Creates a User object in the database
-
-    Returns if creation was successful, and the User object
+    Returns true if the credentials match, otherwise returns false
     """
-    optional_user = get_user_by_email(email)
+    polling_agent = get_polling_agent(polling_agent_name, polling_agent_phone_number)
 
-    if optional_user is not None:
-        return False, optional_user
+    if not polling_agent:
+        return False, None
     
-    user = User(email = email, password = password, name = name, address = address, major = major)
+    # verify password
+    # send a one time verification token to phone number
+    
+    return polling_agent.verify_password(password), optional_user
 
-    db.session.add(user)
+
+# def renew_session(update_token):
+#     """
+#     Renews a user's session token
+    
+#     Returns the User object
+#     """
+#     user = get_user_by_update_token(update_token)
+
+#     if user is None:
+#         return None
+    
+#     user.renew_session()
+#     db.session.commit()
+#     return user
+
+
+def create_polling_station(name, number, constituency, region):
+    """
+    Creates a Polling Station
+
+    Returns false, if polling station already exists, otherwise true
+    """
+    polling_station = get_polling_station(name, number, constituency, region)
+
+    if polling_station is not None:
+        return False, polling_station
+    
+    polling_station = Polling_Station(name = name, number = number, constituency = constituency, region = region)
+
+    db.session.add(polling_station)
     db.session.commit()
 
-    return True, user
+    return True, polling_station
 
 
-def renew_session(update_token):
+
+
+def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet):
     """
-    Renews a user's session token
-    
-    Returns the User object
-    """
-    user = get_user_by_update_token(update_token)
+    Creates a Polling Station Result 
 
-    if user is None:
-        return None
+    Returns false, if polling station result already exists, otherwise true
+    """
+    polling_station = get_polling_station(name, number, constituency, region)
+
+    if not polling_station:
+        return True, polling_station
     
-    user.renew_session()
+    polling_station_result = get_polling_station_result_by_polling_station(polling_station.id)
+
+    if polling_station_result is not None:
+        return False, polling_station_result
+    
+    polling_station_result = Polling_Station_Result(
+        total_votes_cast = total_votes,
+        total_valid_ballots = valid_ballots,
+        total_rejected_ballots = rejected_ballots,
+        pink_sheet = pink_sheet
+    )
+
+    db.session.add(polling_station_result)
     db.session.commit()
-    return user
 
-def path(user1, user2):
+    return True, polling_station_result
+
+
+def get_polling_station(name, number, constituency, region):
     """
-    Returns the distance between two users in miles
+    Returns a polling station
     """
-    location1 = (gmaps.geocode(user1.address)[0]['geometry']['location']['lat'],
-                 gmaps.geocode(user1.address)[0]['geometry']['location']['lng'])
+    polling_station = Polling_Station.query.filter(
+        Polling_Station.name == name,
+        Polling_Station.number == number,
+        Polling_Station.constituency == constituency,
+        Polling_Station.region == region
+    )
+
+    if polling_station is None:
+        return False, polling_station
+
+    return True, polling_station
+
+
+def get_polling_agent(name, phone_number):
+    """
+    Returns a polling agent
+    """
+    polling_agent = Polling_Agent.query.filter(Polling_Agent.name == name, 
+                                               Polling_Agent.phone_number == phone_number
+                                               )
+
+    if polling_agent is None:
+        return False, polling_agent
+
+    return True, polling_agent
+
+def get_polling_agent_by_name(name):
+    """
+    Returns a polling agent by name
+    """
+    polling_agent = Polling_Agent.query.filter(Polling_Agent.name == name
+                                               )
+
+    if polling_agent is None:
+        return False, polling_agent
+
+    return True, polling_agent
+
+
+def get_polling_stations_result_by_id(id):
+    """
+    Returns polling station results by id
+    """
+    polling_station_result = Polling_Station_Result.query.filter(
+        Polling_Station_Result.id == id
+        )
+
+    if polling_station_result is None:
+        return False, polling_station_result
+
+    return True, polling_station_result
+
+
+def get_polling_station_result_by_polling_station(polling_station_id):
+    """
+    Returns polling station results by a polling station id
+    """
+    polling_station_result = Polling_Station_Result.query.filter(
+        Polling_Station_Result.polling_station_id == polling_station_id
+        )
+
+    if polling_station_result is None:
+        return False, polling_station_result
+
+    return True, polling_station_result
+
+
+def get_all_results():
+    """
+    Returs all the polling station results
+    """
+    results = Polling_Station_Result.query.all()
+    acc = []
+    for result in results:
+        acc.append(result.serizalize())
+    return True, acc
+
+# function to load csv or excel into data base
+# modification function
+
+
+##### CONSTITUENCY #####
+def get_result_by_constituency(name):
+    """
+    Returns a constituency result by name
+    """
     
-    location2 = (gmaps.geocode(user2.address)[0]['geometry']['location']['lat'],
-                 gmaps.geocode(user2.address)[0]['geometry']['location']['lng'])
+    result = Constituency.query.filter(
+        Constituency.name == name
+        )
+
+    if result is None:
+        return False, result
+
+    return True, result.serialize()
+
+
+def get_all_results_by_constituency():
+    """
+    Returns all results by constituency
+    """
+    results = Constituency.query.all()
+
+    acc = []
     
-    dist = distance(location1, location2).miles
+    for result in results:
+        acc.append(result.serialize())
 
-    return dist
+    return True, acc
 
-def get_user_by_major(major):
-    """
-    Returns users from the database whose major is "major"
-    """
-    return User.query.filter(User.major == major, User.accepted == False).all()
 
-def get_user_by_address(address):
-    """
-    Returns users from the database who address is "address"
-    """
-    return User.query.filter(User.address == address, User.accepted == False).all()
 
-def get_closest_user(user):
+##### REGION #####
+def get_result_by_region(name):
     """
-    Returns the closest user
+    Returns a region result by name
     """
-    users = User.query.filter(User.accepted == False).all()
-    closest_user = None
-    closest_dist = float('inf')
-    for u in users:
-        dist = path(u, user)
-        if dist < closest_dist and u != user:
-            closest_dist = dist
-            closest_user = u
+    result = Constituency.query.filter(
+        Constituency.region == name
+    )
+
+    if result is None:
+        return False, result
     
-    return closest_user
+    return True, result.serialize()
