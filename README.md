@@ -1,1 +1,1 @@
-# we-study
+# collation-app
