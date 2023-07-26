@@ -13,6 +13,7 @@ import db
 
 
 
+
 # def get_user_by_session_token(session_token):
 #     """
 #     Returns a user object from the database given a session token
@@ -26,37 +27,44 @@ import db
 #     """
 #     return User.query.filter(User.update_token == update_token).first()
 
-# def get_user_by_id(id):
-#     """
-#     Returns user given an id
-#     """
-#     return User.query.filter(User.id == id).first()
-
-
-def verify_login_credentials(email, password):
+def get_polling_agent_by_id(id):
     """
-    Returns true if the credentials match, otherwise returns false
+    Returns polling agent given an id
     """
-    optional_user = get_user_by_email(email)
+    polling_agent = Polling_Agent.query.filter(Polling_Agent.id == id).first()
+    print("Uri: ", polling_agent.totp_uri)
 
-    if optional_user is  None:
-        return False, None
+    if polling_agent.totp_uri is None:
+        polling_agent.renew_session()
+        print("renewed: ", polling_agent.totp_uri)
+
+    return polling_agent
+
+
+# def verify_login_credentials(email, password):
+#     """
+#     Returns true if the credentials match, otherwise returns false
+#     """
+#     optional_user = get_user_by_email(email)
+
+#     if optional_user is  None:
+#         return False, None
     
-    return optional_user.verify_password(password), optional_user
+#     return optional_user.verify_password(password), optional_user
 
-def verify_submit_credentials(polling_agent_name, polling_agent_phone_number):
-    """
-    Returns true if the credentials match, otherwise returns false
-    """
-    polling_agent = get_polling_agent(polling_agent_name, polling_agent_phone_number)
+# def verify_submit_credentials(polling_agent_name, polling_agent_phone_number):
+#     """
+#     Returns true if the credentials match, otherwise returns false
+#     """
+#     polling_agent = get_polling_agent(polling_agent_name, polling_agent_phone_number)
 
-    if not polling_agent:
-        return False, None
+#     if not polling_agent:
+#         return False, None
     
     # verify password
     # send a one time verification token to phone number
     
-    return polling_agent.verify_password(password), optional_user
+    # return polling_agent.verify_password(password), optional_user
 
 
 # def renew_session(update_token):
@@ -75,48 +83,38 @@ def verify_submit_credentials(polling_agent_name, polling_agent_phone_number):
 #     return user
 
 
-def create_polling_station(name, number, constituency, region):
-    """
-    Creates a Polling Station
-
-    Returns false, if polling station already exists, otherwise true
-    """
-    polling_station = get_polling_station(name, number, constituency, region)
-
-    if polling_station is not None:
-        return False, polling_station
-    
-    polling_station = Polling_Station(name = name, number = number, constituency = constituency, region = region)
-
-    db.session.add(polling_station)
-    db.session.commit()
-
-    return True, polling_station
 
 
 
-
-def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet):
+##### CREATE POLLING STATION RESULTS ####
+def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_name, polling_agent_number):
     """
     Creates a Polling Station Result 
-
-    Returns false, if polling station result already exists, otherwise true
     """
+    polling_agent = get_polling_agent(name = polling_agent_name, phone_number = polling_agent_number)
+
+    if not polling_agent:
+        return False, polling_agent
+    
     polling_station = get_polling_station(name, number, constituency, region)
 
     if not polling_station:
-        return True, polling_station
+        return False, polling_station
     
     polling_station_result = get_polling_station_result_by_polling_station(polling_station.id)
 
     if polling_station_result is not None:
         return False, polling_station_result
     
+    
     polling_station_result = Polling_Station_Result(
         total_votes_cast = total_votes,
         total_valid_ballots = valid_ballots,
         total_rejected_ballots = rejected_ballots,
-        pink_sheet = pink_sheet
+        pink_sheet = pink_sheet,
+        votes = votes,
+        polling_station_id = polling_station.id,
+        polling_agent_id = polling_agent.id,
     )
 
     db.session.add(polling_station_result)
@@ -206,24 +204,19 @@ def get_all_results():
         acc.append(result.serizalize())
     return True, acc
 
-# function to load csv or excel into data base
-# modification function
 
-
-##### CONSTITUENCY #####
+##### GET CONSTITUENCY #####
 def get_result_by_constituency(name):
     """
     Returns a constituency result by name
     """
     
-    result = Constituency.query.filter(
-        Constituency.name == name
-        )
+    results = Constituency.query.filter(Constituency.name == name).first()
 
-    if result is None:
-        return False, result
+    if results is None:
+        return False, results
 
-    return True, result.serialize()
+    return True, results.serialize()
 
 
 def get_all_results_by_constituency():
@@ -231,26 +224,24 @@ def get_all_results_by_constituency():
     Returns all results by constituency
     """
     results = Constituency.query.all()
-
     acc = []
-    
     for result in results:
         acc.append(result.serialize())
 
     return True, acc
 
+    
 
 
-##### REGION #####
+
+##### GET REGION #####
 def get_result_by_region(name):
     """
     Returns a region result by name
     """
-    result = Constituency.query.filter(
-        Constituency.region == name
-    )
+    results = Constituency.query.filter(Constituency.region == name)
+    acc = []
+    for result in results:
+        acc.append(result.serialize())
 
-    if result is None:
-        return False, result
-    
-    return True, result.serialize()
+    return True, acc

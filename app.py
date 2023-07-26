@@ -4,7 +4,7 @@ import os
 from db import db
 from db import load_excel
 from flask import Flask, request
-import users_dao
+import dao
 import datetime
 
 db_filename = "collation.db"
@@ -56,40 +56,6 @@ def hello_world():
     return "Hello, " + os.environ.get("ACTIVE")
 
 
-@app.route("/submitresult/", methods = ["POST"])
-def submit_result():
-    """
-    Endpoint to create a result
-    """
-    # verify session
-
-    # get inputs
-    body = json.loads(request.data)
-    data, total_rejected_ballots, total_votes_cast, total_valid_ballots, pink_sheet, polling_agent_name, phone_number = body.get("data"),
-    body.get("total rejected ballots"), body.get("total votes cast"), body.get("total valid ballots"). body.get("pinksheet"), body.get("polling agent name"),
-    body.get("polling agent phone number")
-
-    # do some verifications
-    polling_station_id, polling_agent_id = None, None
-
-    # make pinksheet in right format
-
-    created, polling_station_result = users_dao.create_polling_station_result(data = data, 
-                                                                              total_votes_casts = total_votes_cast, 
-                                                                              total_rejected_ballots = total_rejected_ballots,
-                                                                              total_valid_ballots = total_valid_ballots,
-                                                                              pink_sheet  = pink_sheet,
-                                                                              polling_agent_id = polling_agent_id,
-                                                                              polling_station_id = polling_station_id)
-    
-    if not created:
-        return failure_response("Results already exists", 400)
-    
-    res = polling_station_result.serialize()
-
-    return success_response(res, 201)
-
-
 ################################################################
 #####################GET REQUESTS################################  
 
@@ -104,22 +70,22 @@ def send_results_by_constituency():
 
     if constituency_name is None:
         return failure_response("Invalid inputs")
-    success, res = users_dao.get_result_by_constituency(name = constituency_name)
-
+    
+    success, res = dao.get_result_by_constituency(name = constituency_name)
     if not success:
         return failure_response("Constituency does not exists")
     
     return success_response(res)
 
 
-@app.route("/sendallconstituencysresults/")
+@app.route("/sendallconstituenciesresults/")
 def send_all_results_by_constituency():
     """
     Endpoint to get all results by constituency
     """
     body = json.loads(request.data)
 
-    success, res = users_dao.get_all_results_by_constituency()
+    success, res = dao.get_all_results_by_constituency()
 
     if not success:
         return failure_response("Failed to get results")
@@ -138,12 +104,24 @@ def send_results_by_region():
     if region_name is None:
         return failure_response("Invalid inputs")
     
-    success, res = users_dao.get_result_by_region(name = region_name)
+    success, res = dao.get_result_by_region(name = region_name)
 
     if not success:
         return failure_response("Region does not exists")
     
     return success_response(res)
+
+@app.route("/pollingagent/<int:id>/")
+def get_polling_agent_by_id(id):
+    """
+    Endpoint to get polling agent by id
+    """
+    polling_agent = dao.get_polling_agent_by_id(id)
+
+    if not polling_agent:
+        return failure_response("Polling agent does not exists")
+    
+    return success_response(polling_agent.serialize())
 
 # @app.route("/sendallregionsresults/")
 # def send_all_results_by_region():  #questionable
@@ -165,6 +143,40 @@ def send_results_by_region():
 
 ###################################################################
 #######################POSTS REQUESTS##############################
+
+
+@app.route("/submitresult/", methods = ["POST"])
+def submit_result():
+    """
+    Endpoint to create a result
+    """
+    # verify session
+
+    # get inputs
+    body = json.loads(request.data)
+    data, total_rejected_ballots, total_votes_cast, total_valid_ballots, pink_sheet, polling_agent_name, phone_number = body.get("data"),
+    body.get("total rejected ballots"), body.get("total votes cast"), body.get("total valid ballots"). body.get("pinksheet"), body.get("polling agent name"),
+    body.get("polling agent phone number")
+
+    # do some verifications
+    polling_station_id, polling_agent_id = None, None
+
+    # make pinksheet in right format
+
+    created, polling_station_result = dao.create_polling_station_result(data = data, 
+                                                                              total_votes_casts = total_votes_cast, 
+                                                                              total_rejected_ballots = total_rejected_ballots,
+                                                                              total_valid_ballots = total_valid_ballots,
+                                                                              pink_sheet  = pink_sheet,
+                                                                              polling_agent_id = polling_agent_id,
+                                                                              polling_station_id = polling_station_id)
+    
+    if not created:
+        return failure_response("Results already exists", 400)
+    
+    res = polling_station_result.serialize()
+
+    return success_response(res, 201)
 
 
 # @app.route("/pollingagentlogin/", methods=["POST"])
@@ -216,7 +228,7 @@ def logout_by_polling_agent():
     if not success:
         return session_token
     
-    user = users_dao.get_user_by_session_token(session_token)
+    user = dao.get_user_by_session_token(session_token)
     if not user or not user.verify_session_token(session_token):
         return failure_response("Invalid session token!", 400)
     user.session_expiration = datetime.datetime.now()
@@ -235,7 +247,7 @@ def update_session():
     if not success:
         return update_token
     
-    user = users_dao.renew_session(update_token)
+    user = dao.renew_session(update_token)
 
     if user is None:
         return failure_response("Invalid update token!")
@@ -261,13 +273,18 @@ def secret_message():
     if not success:
         return session_token
     
-    user = users_dao.get_user_by_session_token(session_token)
+    user = dao.get_user_by_session_token(session_token)
 
     if user is None or not user.verify_session_token(session_token):
         return failure_response("Invalid session token", 400)
     
     return success_response({"message" : "Wow we implemented session token!!"}, 201)
 
+@app.route("/sendtoken/", methods=["POST"])
+def send_token():
+    """
+    Endpoint to send vefication token via sms
+    """
 
 # manipulate data
 

@@ -1,6 +1,8 @@
 import datetime
 import hashlib
 import os
+import pyotp
+
 
 import bcrypt
 from flask_sqlalchemy import SQLAlchemy
@@ -12,17 +14,20 @@ db = SQLAlchemy()
 def load_excel():
 
     polling_agents_df = read_excel('agents.xlsx')
-    polling_station_results_df = read_excel('results.xlsx')
     polling_stations_df = read_excel('stations.xlsx')
+    constituencies_df = read_excel('constituencies.xlsx')
+
 
 
     # Specify the table name and the SQLAlchemy engine
     engine = db.get_engine()
 
     # Insert the data into the database table
+
     polling_agents_df.to_sql("polling_agents", con = engine, if_exists = 'append', index = False, chunksize = 1000)
-    polling_station_results_df.to_sql("polling_stations", con = engine, if_exists = 'append', index = False, chunksize = 1000)
-    polling_stations_df.to_sql("polling_station_results", con = engine, if_exists = 'append', index = False, chunksize = 1000)
+    polling_stations_df.to_sql("polling_stations", con = engine, if_exists = 'append', index = False, chunksize = 1000)
+    constituencies_df.to_sql("constituencies", con = engine, if_exists = 'append', index = False, chunksize = 1000)
+
 
 
 class Polling_Agent(db.Model):
@@ -35,14 +40,15 @@ class Polling_Agent(db.Model):
     # Polling Agent information
     name = db.Column(db.String, nullable = False)
     phone_number = db.Column(db.String, nullable = False, unique = True)
+    totp_uri = db.Column(db.String, unique = True)
 
 
-    password_digest = db.Column(db.String, nullable=False)
+    # password_digest = db.Column(db.String, nullable= True)
 
     # Session information
-    session_token = db.Column(db.String, nullable=False, unique=True)
-    session_expiration = db.Column(db.DateTime, nullable=False)
-    update_token = db.Column(db.String, nullable=False, unique=True)
+    # session_token = db.Column(db.String, nullable=True, unique=True)
+    # session_expiration = db.Column(db.DateTime, nullable=True)
+    # update_token = db.Column(db.String, nullable=True, unique=True)
 
 
     # Polling station result
@@ -54,18 +60,20 @@ class Polling_Agent(db.Model):
         Initializes a polling agent object
         """
         self.name = kwargs.get("firstname") + " " + kwargs.get("lastname")
-        password = kwargs.get("phone_number") + kwargs.get("firstname") + kwargs.get("lastname")
-        self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
+        # password = kwargs.get("phone_number") + kwargs.get("firstname") + kwargs.get("lastname")
+        # self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
         self.phone_number = kwargs.get("phone_number")
-        self.renew_session()
+        # self.renew_session()
 
     def serialize(self):
         """
         Returns a serialized polling agent
         """
+        totp = pyotp.parse_uri(self.totp_uri)
         res = {
             "name" : self.name,
             "phone number" : self.phone_number, 
+            "token" : totp.now(),
             "polling station results" : [result.serialize() for result in self.polling_station_result]
         }
         return res
@@ -83,20 +91,27 @@ class Polling_Agent(db.Model):
         2. Sets the expiration time of the session to be a day from now
         3. Creates a new update token
         """
-        self.session_token = self._urlsafe_base_64()
-        self.session_expiration = datetime.datetime.now() + datetime.timedelta(days=1)
-        self.update_token = self._urlsafe_base_64()
+        totp = pyotp.TOTP(pyotp.random_base32(), interval= 10)  # check digest later
+        self.totp_uri = totp.provisioning_uri()
+        db.session.commit()
+        
 
-    def verify_password(self, password):
-        """
-        Verifies the password of a user
-        """
-        return bcrypt.checkpw(password.encode("utf8"), self.password_digest)
+
+        # self.session_token = self._urlsafe_base_64()
+        # self.session_expiration = datetime.datetime.now() + datetime.timedelta(days=1)
+        # self.update_token = self._urlsafe_base_64()
+
+    # def verify_password(self, password):
+    #     """
+    #     Verifies the password of a user
+    #     """
+    #     return bcrypt.checkpw(password.encode("utf8"), self.password_digest)
 
     def verify_session_token(self, session_token):
         """
         Verifies the session token of a user
         """
+
         return session_token == self.session_token and datetime.datetime.now() < self.session_expiration
 
     def verify_update_token(self, update_token):
@@ -224,10 +239,10 @@ class Constituency(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement = True)
 
     # Polling station 
-    polling_station = db.relationship("Polling_Station", cascade = "delete")
+    polling_stations = db.relationship("Polling_Station", cascade = "delete")
 
     # Constituency information
-    name = db.Column(db.String, nullable = False)
+    name = db.Column(db.String, nullable = False, unique = True)
     region = db.Column(db.String, nullable = False)
 
 
@@ -246,6 +261,6 @@ class Constituency(db.Model):
         res = {
             "name" : self.name,
             "region" : self.region,
-            "polling station" : [station.serialize() for station in self.polling_station]
+            "polling stations" : [station.serialize() for station in self.polling_stations]
         }
         return res
