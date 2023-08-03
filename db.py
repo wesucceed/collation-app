@@ -40,34 +40,38 @@ class Polling_Agent(db.Model):
     # Polling Agent information
     name = db.Column(db.String, nullable = False)
     phone_number = db.Column(db.String, nullable = False, unique = True)
-    totp_uri = db.Column(db.String, unique = True, nullable = True)
-    password_digest = db.Column(db.String, nullable= True)
+    totp_uri = db.Column(db.String, unique = True, nullable = False)
+    password_digest = db.Column(db.String, nullable= False)
+    auto_password_digest = db.Column(db.String, nullable= False)
+
+    is_verified = db.Column(db.Boolean, default = False, nullable =  False)
+
 
     # Session information
-    session_token = db.Column(db.String, nullable=True, unique=True)
-    session_expiration = db.Column(db.DateTime, nullable=True)
-    update_token = db.Column(db.String, nullable=True, unique=True)
+    session_token = db.Column(db.String, nullable=False, unique=True)
+    session_expiration = db.Column(db.DateTime, nullable=False)
+    update_token = db.Column(db.String, nullable=False, unique=True)
 
 
     # Polling station result
 
     polling_station_result = db.relationship("Polling_Station_Result", cascade = "delete")
 
+    polling_station_id = db.Column(db.Integer, db.ForeignKey("polling_stations.id"), nullable = False, unique = True)
+
+
     def __init__(self, **kwargs):
         """
         Initializes a polling agent object
         """
-        self.name = kwargs.get("firstname") + " " + kwargs.get("lastname")
-        self.renew_password_digest(kwargs.get("password"))
+        self.name = kwargs.get("name")
         self.phone_number = kwargs.get("phone_number")
+        self.password_digest = bcrypt.hashpw(kwargs.get("password").encode("utf8"), bcrypt.gensalt(rounds=13))
+        self.polling_station_id = kwargs.get("polling_station_id")
+        self.auto_password_digest = bcrypt.hashpw(kwargs.get("auto_password").encode("utf8"), bcrypt.gensalt(rounds=13))
         self.renew_session()
         self.renew_totp()
 
-    def renew_password_digest(self, password):
-        """
-        Renews password digest
-        """
-        self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
 
     def verify_polling_agent(self, name, phone_number):
         return self.name == name and self.phone_number == phone_number
@@ -105,7 +109,7 @@ class Polling_Agent(db.Model):
         """
         Renews totp
         """
-        totp = pyotp.TOTP(pyotp.random_base32(), interval= 10)  # check digest later
+        totp = pyotp.TOTP(pyotp.random_base32(), interval= 10)  
         self.totp_uri = totp.provisioning_uri()
     
     def renew_session(self):
@@ -135,7 +139,7 @@ class Polling_Agent(db.Model):
         """
         return update_token == self.update_token
         
-
+# 1:1 relationship with polling agent
 class Polling_Station(db.Model):
     """
     Polling Station Model
@@ -146,12 +150,14 @@ class Polling_Station(db.Model):
     # Polling station results
     polling_station_result = db.relationship("Polling_Station_Result", cascade = "delete")
 
+    # Assigned polling agent
+    polling_agent = db.relationship("Polling_Agent", cascade = "delete", unique = True)
+
+
     # Polling Station information
     name = db.Column(db.String, nullable = False)
-    number = db.Column(db.String, nullable = False, unique = True)
-    region = db.Column(db.String, nullable = False)
-
-
+    number = db.Column(db.String, nullable = False)
+    region = db.Column(db.String, nullable = False, unique = True)
     constituency_id = db.Column(db.Integer, db.ForeignKey("constituencies.id"), nullable = False, unique = True)
 
 
@@ -175,7 +181,8 @@ class Polling_Station(db.Model):
             "number" : self.number,
             "constituency" : self.constituency_id,
             "region" : self.region,
-            "polling station result" : [result.serialize() for result in self.polling_station_result]
+            "polling station result" : [result.serialize() for result in self.polling_station_result],
+            "polling_agent" : [polling_agent.serialize() for polling_agent in self.polling_agent]
         }
         return res
     

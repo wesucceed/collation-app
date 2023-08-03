@@ -9,8 +9,20 @@ from db import Polling_Station
 from db import Polling_Station_Result
 from db import Constituency
 import db
-#generate password function and send it to the number
-#5
+from twilioapp import sendmessage
+import secrets
+import string
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+
+def generate_password(length=8):
+    characters = string.ascii_letters + string.digits + string.punctuation
+    password = ''.join(secrets.choice(characters) for i in range(length))
+    return password
+
+#generate password function and send to admin for verification
 def get_polling_agent_by_id(id, password):
     """
     Returns polling agent given an id
@@ -70,6 +82,32 @@ def renew_session(update_token):
 
 
 ##### CREATE POLLING STATION RESULTS ####
+
+def create_polling_agent(name, phone_number, password, polling_station_id):    
+
+    exists, polling_agent = get_polling_agent(name, phone_number)
+    if exists:
+        return False, polling_agent
+    
+    auto_password = generate_password()
+
+    polling_agent = Polling_Agent(name = name, 
+                                  phone_number = phone_number, 
+                                  password = password, 
+                                  polling_station_id = polling_station_id, 
+                                  auto_password = auto_password)
+    
+    if not polling_agent:
+        return False, polling_agent
+    
+    sendmessage(os.environ.get("TWILIO_PHONE_NUMBER"), auto_password)
+    db.session.add(polling_agent)
+    db.session.commit()
+    return True, polling_agent
+    
+
+    
+
 def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_name, polling_agent_number):
     """
     Creates a Polling Station Result 

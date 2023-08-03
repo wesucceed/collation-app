@@ -145,6 +145,35 @@ def get_polling_agent_by_id(id):
 ###################################################################
 #######################POSTS REQUESTS##############################
 
+@app.route("/pollingagent/", methods = ["POST"])
+def create_account():
+    """
+    Endpoint to create a polling agent account
+    """
+    body = json.loads(request.data)
+    firstname = body.get("firstname")
+    lastname = body.get("lastname")
+    password = body.get("password")
+    polling_station_name = body.get("polling_station_name")
+    polling_station_number = body.get("polling_station_number")
+    constituency_name = body.get("constituency_name")
+    region_name = body.get("region_name")
+
+    if not (firstname and lastname and password and polling_station_name and polling_station_number and constituency_name and region_name):
+        return failure_response("Invalid inputs!", 400)
+    
+    success, polling_station = dao.get_polling_station(polling_station_name, polling_station_number, constituency_name, region_name)
+
+    if not success:
+        return failure_response("Invalid inputs!", 400)
+    
+    if len(polling_station.serialize().get("polling_agent")):
+        return failure_response("Polling station occupied", 400)
+    
+
+    
+
+
 
 @app.route("/submitresult/<int:polling_agent_id>/", methods = ["POST"])
 def submit_result(polling_agent_id, polling_station_id):
@@ -214,12 +243,13 @@ def verify_polling_agent_existence():
     if not sent:
         return failure_response("Incorrect credentials", 400)
     
+    db.session.commit()
     return success_response({"success" : "Verification code sent!"}, 201)
 
 @app.route("/setpassword/", methods = ["POST"])
 def set_password():
     """
-    Endpoint to verify polling agent existence
+    Endpoint to setting password
     """
     body = json.loads(request.data)
     password = body.get("password")
@@ -250,6 +280,8 @@ def set_password():
         "session_expiration" : polling_agent.session_expiration,
         "update_token" : polling_agent.update_token
     }
+
+    db.session.commit()
 
     return success_response(res, 201)
 
@@ -359,7 +391,8 @@ def send_token():
 
 #endpoint to create an acc
 #endpoint to load excel into database
-
+#if the polling agent has to be replaced, we will do that
+# endpoint for admin creation and login 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
 
