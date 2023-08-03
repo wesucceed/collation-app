@@ -20,16 +20,9 @@ def get_polling_agent_by_id(id, password):
     if polling_agent is None:
         return polling_agent
 
-    if polling_agent.totp_uri is None:
-        polling_agent.renew_totp()
-
-    if polling_agent.password_digest is None:
-        polling_agent.renew_totp()
-
-    db.session.commit()
     return polling_agent
 
-def get_polling_agent_by_name(name, password):
+def get_polling_agent_by_name(name):
     """
     Returns polling agent given a name
     """
@@ -38,20 +31,16 @@ def get_polling_agent_by_name(name, password):
     if polling_agent is None:
         return False, polling_agent
 
-    if polling_agent.totp_uri is None:
-        polling_agent.renew_totp()
-
-    if polling_agent.password_digest is None:
-        polling_agent.renew_password_digest(password)
-    
-    db.session.commit()
-    return polling_agent
+    return True, polling_agent
 
 def get_polling_agent_by_session_token(session_token):
     return Polling_Agent.query.filter(Polling_Agent.session_token == session_token)
 
 def get_polling_agent_by_update_token(update_token):
     return Polling_Agent.query.filter(Polling_Agent.update_token == update_token)
+
+def get_polling_agent(name, phone_number):
+    return Polling_Agent.query.filter(Polling_Agent.name == name , Polling_Agent.phone_number == phone_number)
 
 def verify_login_credentials(name, password):
     """
@@ -63,6 +52,10 @@ def verify_login_credentials(name, password):
         return False, polling_agent
     
     return polling_agent.verify_password(password), polling_agent
+
+def verify_2fa():
+    """
+    """
 
 def renew_session(update_token):
     """

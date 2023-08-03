@@ -69,6 +69,16 @@ class Polling_Agent(db.Model):
         """
         self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
 
+    def verify_polling_agent(self, name, phone_number):
+        return self.name == name and self.phone_number == phone_number
+    
+    def get_totp(self):
+        """
+        Get time otp
+        """
+        totp = pyotp.parse_uri(self.totp_uri)
+        return totp.now()
+
 
     def serialize(self):
         """
@@ -82,7 +92,7 @@ class Polling_Agent(db.Model):
     
     def verify_totp(self, code):
         totp = pyotp.parse_uri(self.totp_uri).now()
-        return True if totp == code else False
+        return code == totp
 
 
     def _urlsafe_base_64(self):

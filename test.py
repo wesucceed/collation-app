@@ -11,5 +11,3 @@ time.sleep(30)
 x= pyotp.parse_uri(url)
 print(x.now())
 print(totp.now())
-
-hi

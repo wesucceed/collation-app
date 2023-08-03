@@ -183,6 +183,78 @@ def submit_result(polling_agent_id, polling_station_id):
     
     return success_response(polling_station_result, 201)
 
+@app.route("/verifypollingagent/", methods = ["POST"])
+def verify_polling_agent_existence():
+    """
+    Endpoint to verify polling agent existence
+    """
+    body = json.loads(request.data)
+    firstname = body.get("firstname")
+    lastname = body.get("lastname")
+    phone_number = body.get("phone_number")
+
+    if not (firstname and lastname and phone_number):
+        return failure_response("Invalid inputs!")
+    
+    name = firstname + " " + lastname
+    success, polling_agent = dao.get_polling_agent_by_name(name)
+
+    if not success:
+        return failure_response("Incorrect credentials", 400)
+    
+    success = polling_agent.verify_polling_agent(name, phone_number)
+
+    if not success:
+        return failure_response("Incorrect credentials", 400)
+    
+    polling_agent.renew_totp()
+
+    sent = sendmessage(polling_agent.phone_number, polling_agent.get_totp())
+
+    if not sent:
+        return failure_response("Incorrect credentials", 400)
+    
+    return success_response({"success" : "Verification code sent!"}, 201)
+
+@app.route("/setpassword/", methods = ["POST"])
+def set_password():
+    """
+    Endpoint to verify polling agent existence
+    """
+    body = json.loads(request.data)
+    password = body.get("password")
+    verification_code = body.get("verification_code")
+    firstname = body.get("firstname")
+    lastname = body.get("lastname")
+    phone_number = body.get("phone_number")
+    
+    if not (firstname and lastname and password and verification_code and phone_number):
+        return failure_response("Invalid inputs!")
+    
+    name = firstname + " " + lastname
+
+    polling_agent = dao.get_polling_agent(name, phone_number)
+
+    if not polling_agent:
+        return failure_response("Incorrect credentials!")
+
+    verified = polling_agent.verify_totp(verification_code)   
+
+    if not verified:
+        return failure_response("Invalid credentials") 
+    
+    polling_agent.renew_password_digest(password)
+    
+    res = {
+        "session_token" : polling_agent.session_token,
+        "session_expiration" : polling_agent.session_expiration,
+        "update_token" : polling_agent.update_token
+    }
+
+    return success_response(res, 201)
+
+    
+
 
 @app.route("/pollingagentlogin/", methods=["POST"])
 def login_by_polling_agent():
@@ -250,7 +322,7 @@ def update_session():
         "update_token" : polling_agent.update_token
     }
 
-    return success(res)
+    return success(res, 201)
 
 
 @app.route("/secret/", methods = ["POST"])

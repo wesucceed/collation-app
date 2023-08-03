@@ -16,6 +16,6 @@ def sendmessage(dest, token):
                                 body= token,
                                 to= dest
                             )
-
-    print(f"Message SID: {message.sid}")
+    
+    return True
 
