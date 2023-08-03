@@ -8,82 +8,72 @@ from db import Polling_Agent
 from db import Polling_Station
 from db import Polling_Station_Result
 from db import Constituency
-import os
 import db
-
-
-
-
-# def get_user_by_session_token(session_token):
-#     """
-#     Returns a user object from the database given a session token
-#     """
-#     return User.query.filter(User.session_token == session_token).first()
-
-
-# def get_user_by_update_token(update_token):
-#     """
-#     Returns a user object from the database given an update token
-#     """
-#     return User.query.filter(User.update_token == update_token).first()
-
-def get_polling_agent_by_id(id):
+#generate password function and send it to the number
+#5
+def get_polling_agent_by_id(id, password):
     """
     Returns polling agent given an id
     """
     polling_agent = Polling_Agent.query.filter(Polling_Agent.id == id).first()
-    print("Uri: ", polling_agent.totp_uri)
+
+    if polling_agent is None:
+        return polling_agent
 
     if polling_agent.totp_uri is None:
-        polling_agent.renew_session()
-        print("renewed: ", polling_agent.totp_uri)
+        polling_agent.renew_totp()
 
+    if polling_agent.password_digest is None:
+        polling_agent.renew_totp()
+
+    db.session.commit()
     return polling_agent
 
+def get_polling_agent_by_name(name, password):
+    """
+    Returns polling agent given a name
+    """
+    polling_agent = Polling_Agent.query.filter(Polling_Agent.name == name).first()
 
-# def verify_login_credentials(email, password):
-#     """
-#     Returns true if the credentials match, otherwise returns false
-#     """
-#     optional_user = get_user_by_email(email)
+    if polling_agent is None:
+        return False, polling_agent
 
-#     if optional_user is  None:
-#         return False, None
+    if polling_agent.totp_uri is None:
+        polling_agent.renew_totp()
+
+    if polling_agent.password_digest is None:
+        polling_agent.renew_password_digest(password)
     
-#     return optional_user.verify_password(password), optional_user
+    db.session.commit()
+    return polling_agent
 
-# def verify_submit_credentials(polling_agent_name, polling_agent_phone_number):
-#     """
-#     Returns true if the credentials match, otherwise returns false
-#     """
-#     polling_agent = get_polling_agent(polling_agent_name, polling_agent_phone_number)
+def get_polling_agent_by_session_token(session_token):
+    return Polling_Agent.query.filter(Polling_Agent.session_token == session_token)
 
-#     if not polling_agent:
-#         return False, None
+def get_polling_agent_by_update_token(update_token):
+    return Polling_Agent.query.filter(Polling_Agent.update_token == update_token)
+
+def verify_login_credentials(name, password):
+    """
+    Returns true if the credentials match, otherwise returns false
+    """
+    polling_agent = get_polling_agent_by_name(name)
+
+    if polling_agent is  None:
+        return False, polling_agent
     
-    # verify password
-    # send a one time verification token to phone number
-    
-    # return polling_agent.verify_password(password), optional_user
+    return polling_agent.verify_password(password), polling_agent
 
+def renew_session(update_token):
+    """
+    Renews session
+    """
+    polling_agent = get_polling_agent_by_update_token(update_token)
 
-# def renew_session(update_token):
-#     """
-#     Renews a user's session token
-    
-#     Returns the User object
-#     """
-#     user = get_user_by_update_token(update_token)
-
-#     if user is None:
-#         return None
-    
-#     user.renew_session()
-#     db.session.commit()
-#     return user
-
-
-
+    if not polling_agent:
+        return None
+    polling_agent.renew_session()
+    return polling_agent
 
 
 ##### CREATE POLLING STATION RESULTS ####
@@ -153,32 +143,6 @@ def get_polling_agent(name, phone_number):
 
     return True, polling_agent
 
-def get_polling_agent_by_name(name):
-    """
-    Returns a polling agent by name
-    """
-    polling_agent = Polling_Agent.query.filter(Polling_Agent.name == name
-                                               )
-
-    if polling_agent is None:
-        return False, polling_agent
-
-    return True, polling_agent
-
-
-def get_polling_stations_result_by_id(id):
-    """
-    Returns polling station results by id
-    """
-    polling_station_result = Polling_Station_Result.query.filter(
-        Polling_Station_Result.id == id
-        )
-
-    if polling_station_result is None:
-        return False, polling_station_result
-
-    return True, polling_station_result
-
 
 def get_polling_station_result_by_polling_station(polling_station_id):
     """
@@ -193,55 +157,55 @@ def get_polling_station_result_by_polling_station(polling_station_id):
 
     return True, polling_station_result
 
-
+# 4
 def get_all_results():
     """
     Returs all the polling station results
     """
     results = Polling_Station_Result.query.all()
-    acc = []
-    for result in results:
-        acc.append(result.serizalize())
-    return True, acc
+    return True, results
 
 
 ##### GET CONSTITUENCY #####
+# 1
 def get_result_by_constituency(name):
     """
     Returns a constituency result by name
     """
-    
     results = Constituency.query.filter(Constituency.name == name).first()
 
     if results is None:
         return False, results
 
-    return True, results.serialize()
+    return True, results
 
-
+# 2
 def get_all_results_by_constituency():
     """
     Returns all results by constituency
     """
     results = Constituency.query.all()
-    acc = []
-    for result in results:
-        acc.append(result.serialize())
-
-    return True, acc
-
-    
-
+    return True, results
 
 
 ##### GET REGION #####
+# 3
 def get_result_by_region(name):
     """
     Returns a region result by name
     """
     results = Constituency.query.filter(Constituency.region == name)
-    acc = []
-    for result in results:
-        acc.append(result.serialize())
+    return True, results
 
-    return True, acc
+
+##### VERIFICATION #####
+def verify_sms_code(verification_code, polling_agent_id):
+    user = get_polling_agent_by_id(id = polling_agent_id)
+
+    if not user:
+        return False, None
+    
+    if not user.verify_totp(verification_code):
+        return False, None
+    
+    return True, user

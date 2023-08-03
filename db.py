@@ -40,15 +40,13 @@ class Polling_Agent(db.Model):
     # Polling Agent information
     name = db.Column(db.String, nullable = False)
     phone_number = db.Column(db.String, nullable = False, unique = True)
-    totp_uri = db.Column(db.String, unique = True)
-
-
-    # password_digest = db.Column(db.String, nullable= True)
+    totp_uri = db.Column(db.String, unique = True, nullable = True)
+    password_digest = db.Column(db.String, nullable= True)
 
     # Session information
-    # session_token = db.Column(db.String, nullable=True, unique=True)
-    # session_expiration = db.Column(db.DateTime, nullable=True)
-    # update_token = db.Column(db.String, nullable=True, unique=True)
+    session_token = db.Column(db.String, nullable=True, unique=True)
+    session_expiration = db.Column(db.DateTime, nullable=True)
+    update_token = db.Column(db.String, nullable=True, unique=True)
 
 
     # Polling station result
@@ -60,23 +58,32 @@ class Polling_Agent(db.Model):
         Initializes a polling agent object
         """
         self.name = kwargs.get("firstname") + " " + kwargs.get("lastname")
-        # password = kwargs.get("phone_number") + kwargs.get("firstname") + kwargs.get("lastname")
-        # self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
+        self.renew_password_digest(kwargs.get("password"))
         self.phone_number = kwargs.get("phone_number")
-        # self.renew_session()
+        self.renew_session()
+        self.renew_totp()
+
+    def renew_password_digest(self, password):
+        """
+        Renews password digest
+        """
+        self.password_digest = bcrypt.hashpw(password.encode("utf8"), bcrypt.gensalt(rounds=13))
+
 
     def serialize(self):
         """
         Returns a serialized polling agent
         """
-        totp = pyotp.parse_uri(self.totp_uri)
         res = {
             "name" : self.name,
-            "phone number" : self.phone_number, 
-            "token" : totp.now(),
             "polling station results" : [result.serialize() for result in self.polling_station_result]
         }
         return res
+    
+    def verify_totp(self, code):
+        totp = pyotp.parse_uri(self.totp_uri).now()
+        return True if totp == code else False
+
 
     def _urlsafe_base_64(self):
         """
@@ -84,28 +91,26 @@ class Polling_Agent(db.Model):
         """
         return hashlib.sha1(os.urandom(64)).hexdigest()
 
-    def renew_session(self):
+    def renew_totp(self):
         """
-        Renews the sessions, i.e.
-        1. Creates a new session token
-        2. Sets the expiration time of the session to be a day from now
-        3. Creates a new update token
+        Renews totp
         """
         totp = pyotp.TOTP(pyotp.random_base32(), interval= 10)  # check digest later
         self.totp_uri = totp.provisioning_uri()
-        db.session.commit()
-        
+    
+    def renew_session(self):
+        """
+        Renews session
+        """
+        self.session_token = self._urlsafe_base_64()
+        self.session_expiration = datetime.datetime.now() + datetime.timedelta(minutes=15)
+        self.update_token = self._urlsafe_base_64()
 
-
-        # self.session_token = self._urlsafe_base_64()
-        # self.session_expiration = datetime.datetime.now() + datetime.timedelta(days=1)
-        # self.update_token = self._urlsafe_base_64()
-
-    # def verify_password(self, password):
-    #     """
-    #     Verifies the password of a user
-    #     """
-    #     return bcrypt.checkpw(password.encode("utf8"), self.password_digest)
+    def verify_password(self, password):
+        """
+        Verifies the password of a polling agent
+        """
+        return bcrypt.checkpw(password.encode("utf8"), self.password_digest)
 
     def verify_session_token(self, session_token):
         """
