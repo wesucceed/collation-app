@@ -2,7 +2,7 @@ import json
 import os
 
 from db import db
-from db import load_excel
+from db import load_polling_stations
 from flask import Flask, request
 import dao
 import datetime
@@ -19,7 +19,6 @@ db.init_app(app)
 with app.app_context():
     db.drop_all()
     db.create_all()
-    load_excel()
     
 # generalized response formats
 def success_response(data, code=200):
@@ -145,15 +144,30 @@ def get_polling_agent_by_id(id):
 ###################################################################
 #######################POSTS REQUESTS##############################
 
+@app.route("/createpollingstations/", methods = ["POST"])
+def create_polling_stations():
+    """
+    Endpoint to create polling_stations
+    """
+    success = load_polling_stations()
+
+    if not success:
+        return failure_response("Couldn't load polling stations", 400)
+    
+    return success_response("Loading success", 201) #TODO: how to use excel input
+
+
 @app.route("/pollingagent/", methods = ["POST"])
-def create_account():
+def create_polling_agent():
     """
     Endpoint to create a polling agent account
     """
     body = json.loads(request.data)
+    
     firstname = body.get("firstname")
     lastname = body.get("lastname")
     password = body.get("password")
+    phone_number = body.get("phone_number")
     polling_station_name = body.get("polling_station_name")
     polling_station_number = body.get("polling_station_number")
     constituency_name = body.get("constituency_name")
@@ -165,39 +179,52 @@ def create_account():
     success, polling_station = dao.get_polling_station(polling_station_name, polling_station_number, constituency_name, region_name)
 
     if not success:
-        return failure_response("Invalid inputs!", 400)
+        return failure_response("Polling station does not exists!", 400)
     
     if len(polling_station.serialize().get("polling_agent")):
         return failure_response("Polling station occupied", 400)
     
+    name = firstname + " " + lastname
+    created, polling_agent = dao.create_polling_agent(name, phone_number, password, polling_station.id)
 
-    
+    if not created:
+        return failure_response("Polling Agent already exists", 400)
 
+    res = {
+        "session_token" : polling_agent.session_token,
+        "session_expiration" : polling_agent.session_expiration,
+        "update_token" : polling_agent.update_token
+    }
+
+    return success_response(res, 201)
 
 
 @app.route("/submitresult/<int:polling_agent_id>/", methods = ["POST"])
-def submit_result(polling_agent_id, polling_station_id):
+def submit_result(polling_agent_id):
     """
     Endpoint to create a result
     """
     # verify session
     # get inputs
     body = json.loads(request.data)
+    
     data = body.get("data")
     total_rejected_ballots = body.get("total rejected ballots")
     total_votes_cast = body.get("total votes cast")
     total_valid_ballots = body.get("total valid ballots")
     pink_sheet = body.get("pinksheet")
-    code = body.get("verification_code")
+    auto_password = body.get("auto_password")
     polling_station_id = body.get("polling_station_id")
 
-    success, polling_agent = dao.verify_sms_code(code, polling_agent_id)
+    #TODO: how to do 2fa verification
 
-    if not success:
-        return failure_response("Invalid verification code!")
+    # success, polling_agent = dao.verify_sms_code(code, polling_agent_id)
 
-    if not (data and total_rejected_ballots and total_votes_cast and total_valid_ballots and pink_sheet):
-        return failure_response("Invalid inputs!")
+    # if not success:
+    #     return failure_response("Invalid verification code!")
+
+    if not (data and total_rejected_ballots and total_votes_cast and total_valid_ballots and pink_sheet and auto_password):
+        return failure_response("Invalid inputs!", 400)
     
     created, polling_station_result = dao.create_polling_station_result(data, 
                                                                         total_votes_cast, 
@@ -205,88 +232,14 @@ def submit_result(polling_agent_id, polling_station_id):
                                                                         total_valid_ballots,
                                                                         pink_sheet,
                                                                         polling_agent_id,
-                                                                        polling_station_id)
+                                                                        polling_station_id,
+                                                                        auto_password)
     
     if not created:
-        return failure_response("Results already exists", 400)
+        return failure_response("Couldn't create result", 400)
     
-    return success_response(polling_station_result, 201)
-
-@app.route("/verifypollingagent/", methods = ["POST"])
-def verify_polling_agent_existence():
-    """
-    Endpoint to verify polling agent existence
-    """
-    body = json.loads(request.data)
-    firstname = body.get("firstname")
-    lastname = body.get("lastname")
-    phone_number = body.get("phone_number")
-
-    if not (firstname and lastname and phone_number):
-        return failure_response("Invalid inputs!")
+    return success_response(polling_station_result.serialize(), 201)
     
-    name = firstname + " " + lastname
-    success, polling_agent = dao.get_polling_agent_by_name(name)
-
-    if not success:
-        return failure_response("Incorrect credentials", 400)
-    
-    success = polling_agent.verify_polling_agent(name, phone_number)
-
-    if not success:
-        return failure_response("Incorrect credentials", 400)
-    
-    polling_agent.renew_totp()
-
-    sent = sendmessage(polling_agent.phone_number, polling_agent.get_totp())
-
-    if not sent:
-        return failure_response("Incorrect credentials", 400)
-    
-    db.session.commit()
-    return success_response({"success" : "Verification code sent!"}, 201)
-
-@app.route("/setpassword/", methods = ["POST"])
-def set_password():
-    """
-    Endpoint to setting password
-    """
-    body = json.loads(request.data)
-    password = body.get("password")
-    verification_code = body.get("verification_code")
-    firstname = body.get("firstname")
-    lastname = body.get("lastname")
-    phone_number = body.get("phone_number")
-    
-    if not (firstname and lastname and password and verification_code and phone_number):
-        return failure_response("Invalid inputs!")
-    
-    name = firstname + " " + lastname
-
-    polling_agent = dao.get_polling_agent(name, phone_number)
-
-    if not polling_agent:
-        return failure_response("Incorrect credentials!")
-
-    verified = polling_agent.verify_totp(verification_code)   
-
-    if not verified:
-        return failure_response("Invalid credentials") 
-    
-    polling_agent.renew_password_digest(password)
-    
-    res = {
-        "session_token" : polling_agent.session_token,
-        "session_expiration" : polling_agent.session_expiration,
-        "update_token" : polling_agent.update_token
-    }
-
-    db.session.commit()
-
-    return success_response(res, 201)
-
-    
-
 
 @app.route("/pollingagentlogin/", methods=["POST"])
 def login_by_polling_agent():
@@ -316,6 +269,7 @@ def login_by_polling_agent():
 
     return success(res)
 
+
 @app.route("/pollingagentlogout/", methods=["POST"])
 def logout_by_polling_agent():
     """
@@ -335,6 +289,7 @@ def logout_by_polling_agent():
     db.session.commit()
 
     return success_response("Logout success", 201)
+
 
 @app.route("/session/", methods=["POST"])
 def update_session():
@@ -393,6 +348,8 @@ def send_token():
 #endpoint to load excel into database
 #if the polling agent has to be replaced, we will do that
 # endpoint for admin creation and login 
+#TODO: endpoint to send results on regular intervals 
+#TODO: endpoint for aws s3
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
 

@@ -54,21 +54,6 @@ def get_polling_agent_by_update_token(update_token):
 def get_polling_agent(name, phone_number):
     return Polling_Agent.query.filter(Polling_Agent.name == name , Polling_Agent.phone_number == phone_number)
 
-def verify_login_credentials(name, password):
-    """
-    Returns true if the credentials match, otherwise returns false
-    """
-    polling_agent = get_polling_agent_by_name(name)
-
-    if polling_agent is  None:
-        return False, polling_agent
-    
-    return polling_agent.verify_password(password), polling_agent
-
-def verify_2fa():
-    """
-    """
-
 def renew_session(update_token):
     """
     Renews session
@@ -81,7 +66,7 @@ def renew_session(update_token):
     return polling_agent
 
 
-##### CREATE POLLING STATION RESULTS ####
+##### CREATE  ####
 
 def create_polling_agent(name, phone_number, password, polling_station_id):    
 
@@ -100,33 +85,42 @@ def create_polling_agent(name, phone_number, password, polling_station_id):
     if not polling_agent:
         return False, polling_agent
     
-    sendmessage(os.environ.get("TWILIO_PHONE_NUMBER"), auto_password)
+
     db.session.add(polling_agent)
     db.session.commit()
+
     return True, polling_agent
     
 
     
 
-def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_name, polling_agent_number):
+def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_id, auto_password):
     """
     Creates a Polling Station Result 
     """
-    polling_agent = get_polling_agent(name = polling_agent_name, phone_number = polling_agent_number)
+    #TODO: if not verified, verify with auto_password before submission
+    #TODO: check if polling agent sending to right station
+    verified, polling_agent = verify_auto_password(auto_password, polling_agent_id)
 
-    if not polling_agent:
+    if not verified:
         return False, polling_agent
+    
+
+    if not polling_agent.is_verified:
+        polling_agent.is_verified = True
     
     polling_station = get_polling_station(name, number, constituency, region)
 
     if not polling_station:
         return False, polling_station
     
-    polling_station_result = get_polling_station_result_by_polling_station(polling_station.id)
+    polling_agent = polling_station.polling_agent
 
-    if polling_station_result is not None:
-        return False, polling_station_result
+    if polling_agent.id != polling_agent_id:
+        return False, polling_agent
     
+    if polling_station.polling_station_result is not None and polling_agent.polling_station_result is not None:
+        return False, polling_station.polling_station_result
     
     polling_station_result = Polling_Station_Result(
         total_votes_cast = total_votes,
@@ -137,6 +131,9 @@ def create_polling_station_result(name, number, constituency, region, votes, rej
         polling_station_id = polling_station.id,
         polling_agent_id = polling_agent.id,
     )
+
+    if not polling_station_result:
+        return False, polling_station_result
 
     db.session.add(polling_station_result)
     db.session.commit()
@@ -175,7 +172,7 @@ def get_polling_agent(name, phone_number):
     return True, polling_agent
 
 
-def get_polling_station_result_by_polling_station(polling_station_id):
+def get_polling_station_result_by_polling_station_id(polling_station_id):
     """
     Returns polling station results by a polling station id
     """
@@ -240,3 +237,27 @@ def verify_sms_code(verification_code, polling_agent_id):
         return False, None
     
     return True, user
+
+
+def verify_auto_password(auto_password, polling_agent_id):
+    """
+    Verifies auto password
+    """
+    polling_agent = get_polling_agent_by_id(polling_agent_id)
+
+    if polling_agent is  None:
+        return False, polling_agent
+
+    return polling_agent.verify_auto_password(auto_password), polling_agent
+
+
+def verify_login_credentials(name, password):
+    """
+    Returns true if the credentials match, otherwise returns false
+    """
+    polling_agent = get_polling_agent_by_name(name)
+
+    if polling_agent is  None:
+        return False, polling_agent
+    
+    return polling_agent.verify_password(password), polling_agent

@@ -11,24 +11,23 @@ from pandas import read_excel
 db = SQLAlchemy()
 
 
-def load_excel():
+def load_polling_stations():
+    """
+    Loads polling stations into polling stations model from stations.xlsx
 
-    polling_agents_df = read_excel('agents.xlsx')
+    stations.xlsx must contain name, number, constituency and region columns
+    """
+
     polling_stations_df = read_excel('stations.xlsx')
-    constituencies_df = read_excel('constituencies.xlsx')
-
-
 
     # Specify the table name and the SQLAlchemy engine
     engine = db.get_engine()
 
     # Insert the data into the database table
 
-    polling_agents_df.to_sql("polling_agents", con = engine, if_exists = 'append', index = False, chunksize = 1000)
-    polling_stations_df.to_sql("polling_stations", con = engine, if_exists = 'append', index = False, chunksize = 1000)
-    constituencies_df.to_sql("constituencies", con = engine, if_exists = 'append', index = False, chunksize = 1000)
+    polling_stations_df.to_sql("polling_stations", con = engine, if_exists = 'replace', index = False, chunksize = 1000) 
 
-
+    return True
 
 class Polling_Agent(db.Model):
     """
@@ -40,11 +39,10 @@ class Polling_Agent(db.Model):
     # Polling Agent information
     name = db.Column(db.String, nullable = False)
     phone_number = db.Column(db.String, nullable = False, unique = True)
-    totp_uri = db.Column(db.String, unique = True, nullable = False)
-    password_digest = db.Column(db.String, nullable= False)
-    auto_password_digest = db.Column(db.String, nullable= False)
+    password_digest = db.Column(db.String, nullable= False, unique = True)
+    auto_password_digest = db.Column(db.String, nullable= False, unique = True)
 
-    is_verified = db.Column(db.Boolean, default = False, nullable =  False)
+    is_verified = db.Column(db.Boolean, default = False, nullable =  False)  #TODO: HOW TO VERIFY
 
 
     # Session information
@@ -52,11 +50,11 @@ class Polling_Agent(db.Model):
     session_expiration = db.Column(db.DateTime, nullable=False)
     update_token = db.Column(db.String, nullable=False, unique=True)
 
+    # Totp
+    totp_uri = db.Column(db.String, unique = True, nullable = False)
 
     # Polling station result
-
-    polling_station_result = db.relationship("Polling_Station_Result", cascade = "delete")
-
+    polling_station_result = db.relationship("Polling_Station_Result")  #TODO: cascade to be restrict
     polling_station_id = db.Column(db.Integer, db.ForeignKey("polling_stations.id"), nullable = False, unique = True)
 
 
@@ -90,7 +88,8 @@ class Polling_Agent(db.Model):
         """
         res = {
             "name" : self.name,
-            "polling station results" : [result.serialize() for result in self.polling_station_result]
+            "polling_station_id" : self.polling_station_id,
+            "polling_station_results" : [result.serialize() for result in self.polling_station_result] #TODO: serializing 1:1 well?
         }
         return res
     
@@ -109,8 +108,8 @@ class Polling_Agent(db.Model):
         """
         Renews totp
         """
-        totp = pyotp.TOTP(pyotp.random_base32(), interval= 10)  
-        self.totp_uri = totp.provisioning_uri()
+        totp = pyotp.TOTP(pyotp.random_base32(), interval= 15)  
+        self.totp_uri = totp.provisioning_uri() #TODO: is it safe to store prov uri in database
     
     def renew_session(self):
         """
@@ -125,6 +124,12 @@ class Polling_Agent(db.Model):
         Verifies the password of a polling agent
         """
         return bcrypt.checkpw(password.encode("utf8"), self.password_digest)
+    
+    def verify_auto_password(self, auto_password):
+        """
+        Verifies the auto password of a polling agent
+        """
+        return bcrypt.checkpw(auto_password.encode("utf8"), self.auto_password_digest)
 
     def verify_session_token(self, session_token):
         """
@@ -139,7 +144,7 @@ class Polling_Agent(db.Model):
         """
         return update_token == self.update_token
         
-# 1:1 relationship with polling agent
+
 class Polling_Station(db.Model):
     """
     Polling Station Model
@@ -148,17 +153,17 @@ class Polling_Station(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement = True)
 
     # Polling station results
-    polling_station_result = db.relationship("Polling_Station_Result", cascade = "delete")
+    polling_station_result = db.relationship("Polling_Station_Result") #TODO: cascade to be restrict
 
     # Assigned polling agent
-    polling_agent = db.relationship("Polling_Agent", cascade = "delete", unique = True)
-
+    polling_agent = db.relationship("Polling_Agent", unique = True)
 
     # Polling Station information
     name = db.Column(db.String, nullable = False)
-    number = db.Column(db.String, nullable = False)
-    region = db.Column(db.String, nullable = False, unique = True)
-    constituency_id = db.Column(db.Integer, db.ForeignKey("constituencies.id"), nullable = False, unique = True)
+    number = db.Column(db.String, nullable = False, unique = True)
+    region = db.Column(db.String, nullable = False)
+    constituency = db.Column(db.String, nullable = False)
+    # composite id between region and constituency
 
 
 
@@ -168,7 +173,7 @@ class Polling_Station(db.Model):
         """
         self.name = kwargs.get("name") 
         self.number = kwargs.get("number") 
-        self.constituency_id = kwargs.get("constituency_id")
+        self.constituency = kwargs.get("constituency")
         self.region = kwargs.get("region")
 
          
@@ -179,7 +184,7 @@ class Polling_Station(db.Model):
         res = {
             "name" : self.name,
             "number" : self.number,
-            "constituency" : self.constituency_id,
+            "constituency" : self.constituency,
             "region" : self.region,
             "polling station result" : [result.serialize() for result in self.polling_station_result],
             "polling_agent" : [polling_agent.serialize() for polling_agent in self.polling_agent]
@@ -198,12 +203,12 @@ class Polling_Station_Result(db.Model):
 
     cand1 = db.Column(db.Integer, nullable = False)
     cand2 = db.Column(db.Integer, nullable = False)
-    cand3 = db.Column(db.Integer, nullable = False)
+    cand3 = db.Column(db.Integer, nullable = False) #TODO: candidate table with party of candidate
 
-    # measure of centendies
-    total_valid_ballots = db.Column(db.Integer, default = 0, nullable = False)
-    total_rejected_ballots = db.Column(db.Integer, default = 0, nullable = False)
-    total_votes_cast = db.Column(db.Integer, default = 0, nullable = False)
+    # measure of central tendies
+    total_valid_ballots = db.Column(db.Integer, nullable = False)
+    total_rejected_ballots = db.Column(db.Integer, nullable = False)
+    total_votes_cast = db.Column(db.Integer, nullable = False)
 
     # pink sheet
     pink_sheet = db.Column(db.String, nullable = False, unique = True)
@@ -253,36 +258,3 @@ class Polling_Station_Result(db.Model):
         return res
     
 
-class Constituency(db.Model):
-    """
-    Constituency Model
-    """
-    __tablename__ = "constituencies"
-    id = db.Column(db.Integer, primary_key=True, autoincrement = True)
-
-    # Polling station 
-    polling_stations = db.relationship("Polling_Station", cascade = "delete")
-
-    # Constituency information
-    name = db.Column(db.String, nullable = False, unique = True)
-    region = db.Column(db.String, nullable = False)
-
-
-    def __init__(self, **kwargs):
-        """
-        Initializes a polling station object
-        """
-        self.name = kwargs.get("name") 
-        self.region = kwargs.get("region")
-
-         
-    def serialize(self):
-        """
-        Returns a serialized polling station
-        """
-        res = {
-            "name" : self.name,
-            "region" : self.region,
-            "polling stations" : [station.serialize() for station in self.polling_stations]
-        }
-        return res
