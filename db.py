@@ -11,23 +11,6 @@ from pandas import read_excel
 db = SQLAlchemy()
 
 
-def load_polling_stations():
-    """
-    Loads polling stations into polling stations model from stations.xlsx
-
-    stations.xlsx must contain name, number, constituency and region columns
-    """
-
-    polling_stations_df = read_excel('stations.xlsx')
-
-    # Specify the table name and the SQLAlchemy engine
-    engine = db.get_engine()
-
-    # Insert the data into the database table
-
-    polling_stations_df.to_sql("polling_stations", con = engine, if_exists = 'replace', index = False, chunksize = 1000) 
-
-    return True
 
 class Polling_Agent(db.Model):
     """
@@ -144,6 +127,23 @@ class Polling_Agent(db.Model):
         """
         return update_token == self.update_token
         
+def load_polling_stations():
+    """
+    Loads polling stations into polling stations model from stations.xlsx
+
+    stations.xlsx must contain name, number, constituency and region columns
+    """
+
+    polling_stations_df = read_excel('stations.xlsx')
+
+    # Specify the table name and the SQLAlchemy engine
+    engine = db.get_engine()
+
+    # Insert the data into the database table
+
+    polling_stations_df.to_sql("polling_stations", con = engine, if_exists = 'replace', index = False, chunksize = 1000) 
+    db.session.commit()
+    return True
 
 class Polling_Station(db.Model):
     """
@@ -153,10 +153,10 @@ class Polling_Station(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement = True)
 
     # Polling station results
-    polling_station_result = db.relationship("Polling_Station_Result") #TODO: cascade to be restrict
+    polling_station_results = db.relationship("Polling_Station_Result") #TODO: cascade to be restrict
 
     # Assigned polling agent
-    polling_agent = db.relationship("Polling_Agent", unique = True)
+    polling_agent = db.relationship("Polling_Agent")  #TODO: unique is not allowed. was removed
 
     # Polling Station information
     name = db.Column(db.String, nullable = False)
@@ -182,11 +182,11 @@ class Polling_Station(db.Model):
         Returns a serialized polling station
         """
         res = {
-            "name" : self.name,
-            "number" : self.number,
-            "constituency" : self.constituency,
-            "region" : self.region,
-            "polling station result" : [result.serialize() for result in self.polling_station_result],
+            "polling_station_name" : self.name,
+            "polling_station_number" : self.number,
+            "constituency_name" : self.constituency,
+            "region_name" : self.region,
+            "polling_station_result" : [result.serialize() for result in self.polling_station_results],
             "polling_agent" : [polling_agent.serialize() for polling_agent in self.polling_agent]
         }
         return res
@@ -210,7 +210,7 @@ class Polling_Station_Result(db.Model):
     total_rejected_ballots = db.Column(db.Integer, nullable = False)
     total_votes_cast = db.Column(db.Integer, nullable = False)
 
-    # pink sheet
+    # pink_sheet
     pink_sheet = db.Column(db.String, nullable = False, unique = True)
 
     # Polling agent posted
@@ -248,12 +248,12 @@ class Polling_Station_Result(db.Model):
                 "cand2" : self.cand2,
                 "cand3" : self.cand3}
                 ,
-            "total rejected ballots" : self.total_rejected_ballots,
-            "total valid ballots" : self.total_valid_ballots,
-            "total votes cast" : self.total_votes_cast,
-            "pink sheet" : self.pink_sheet,
-            "polling agent id" : self.polling_agent_id,
-            "polling station id" : self.polling_station_id
+            "total_rejected_ballots" : self.total_rejected_ballots,
+            "total_valid_ballots" : self.total_valid_ballots,
+            "total_votes_cast" : self.total_votes_cast,
+            "pink_sheet" : self.pink_sheet,
+            "polling_agent_id" : self.polling_agent_id,
+            "polling_station_id" : self.polling_station_id
         }
         return res
     

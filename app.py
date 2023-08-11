@@ -75,25 +75,12 @@ def send_results_by_constituency():
         return failure_response("Invalid inputs")
     
     success, res = dao.get_result_by_constituency(name = constituency_name)
+
     if not success:
         return failure_response("Constituency does not exists")
     
     return success_response(res)
 
-
-@app.route("/sendallconstituenciesresults/")
-def send_all_results_by_constituency():
-    """
-    Endpoint to get all results by constituency
-    """
-    body = json.loads(request.data)
-
-    success, res = dao.get_all_results_by_constituency()
-
-    if not success:
-        return failure_response("Failed to get results")
-    
-    return success_response(res)
 
 
 @app.route("/sendregionresults/")
@@ -102,7 +89,7 @@ def send_results_by_region():
     Endpoint to get results by region
     """
     body = json.loads(request.data)
-    region_name = body.get("region name")
+    region_name = body.get("region_name")
 
     if region_name is None:
         return failure_response("Invalid inputs")
@@ -128,17 +115,17 @@ def send_all_results():
     
     return success_response(res)
 
-@app.route("/pollingagent/<int:id>/")
-def get_polling_agent_by_id(id):
-    """
-    Endpoint to get polling agent by id
-    """
-    polling_agent = dao.get_polling_agent_by_id(id)
+# @app.route("/pollingagent/<int:id>/")
+# def get_polling_agent_by_id(id):
+#     """
+#     Endpoint to get polling agent by id
+#     """
+#     polling_agent = dao.get_polling_agent_by_id(id)
 
-    if not polling_agent:
-        return failure_response("Polling agent does not exists")
+#     if not polling_agent:
+#         return failure_response("Polling agent does not exists")
     
-    return success_response(polling_agent.serialize())
+#     return success_response(polling_agent.serialize())
 
 
 ###################################################################
@@ -173,7 +160,7 @@ def create_polling_agent():
     constituency_name = body.get("constituency_name")
     region_name = body.get("region_name")
 
-    if not (firstname and lastname and password and polling_station_name and polling_station_number and constituency_name and region_name):
+    if not (phone_number and firstname and lastname and password and polling_station_name and polling_station_number and constituency_name and region_name):
         return failure_response("Invalid inputs!", 400)
     
     success, polling_station = dao.get_polling_station(polling_station_name, polling_station_number, constituency_name, region_name)
@@ -191,9 +178,7 @@ def create_polling_agent():
         return failure_response("Polling Agent already exists", 400)
 
     res = {
-        "session_token" : polling_agent.session_token,
-        "session_expiration" : polling_agent.session_expiration,
-        "update_token" : polling_agent.update_token
+        "session_token" : polling_agent.session_token
     }
 
     return success_response(res, 201)
@@ -209,9 +194,9 @@ def submit_result(polling_agent_id):
     body = json.loads(request.data)
     
     data = body.get("data")
-    total_rejected_ballots = body.get("total rejected ballots")
-    total_votes_cast = body.get("total votes cast")
-    total_valid_ballots = body.get("total valid ballots")
+    total_rejected_ballots = body.get("total_rejected_ballots")
+    total_votes_cast = body.get("total_votes_casts")
+    total_valid_ballots = body.get("total_valid_ballots")
     pink_sheet = body.get("pinksheet")
     auto_password = body.get("auto_password")
     polling_station_id = body.get("polling_station_id")
@@ -262,12 +247,10 @@ def login_by_polling_agent():
         return failure_response("Invalid credentials")
     
     res = {
-        "session_token" : polling_agent.session_token,
-        "session_expiration" : polling_agent.session_expiration,
-        "update_token" : polling_agent.update_token
+        "session_token" : polling_agent.session_token
     }
 
-    return success(res)
+    return success_response(res)
 
 
 @app.route("/pollingagentlogout/", methods=["POST"])
@@ -291,27 +274,6 @@ def logout_by_polling_agent():
     return success_response("Logout success", 201)
 
 
-@app.route("/session/", methods=["POST"])
-def update_session():
-    success, update_token = extract_token(request)
-
-    if not success:
-        return failure_response(update_token)
-    
-    polling_agent = dao.renew_session(update_token)
-
-    if not polling_agent:
-        return failure_response("Invalid update token")
-    
-    res = {
-        "session_token" : polling_agent.session_token,
-        "session_expiration" : polling_agent.session_expiration,
-        "update_token" : polling_agent.update_token
-    }
-
-    return success(res, 201)
-
-
 @app.route("/secret/", methods = ["POST"])
 def secret_message():
     """
@@ -329,8 +291,8 @@ def secret_message():
     return success_response("Session verified!", 201)
 
 
-@app.route("/sendtoken/", methods=["POST"])
-def send_token():
+@app.route("/send2facode/")
+def send_2fa_code():
     """
     Endpoint to send vefication token via sms
     """
@@ -343,6 +305,13 @@ def send_token():
     if not polling_agent or not polling_agent.verify_session_token(session_token):
         return failure_response("Invalid session token")
     
+    sent = sendmessage(polling_agent.phone_number, polling_agent.get_totp())
+
+    if not sent:
+        return failure_response("Could not send 2fa code")
+    
+    return success_response("2fa code sent!")
+    
 
 #endpoint to create an acc
 #endpoint to load excel into database
@@ -350,6 +319,7 @@ def send_token():
 # endpoint for admin creation and login 
 #TODO: endpoint to send results on regular intervals 
 #TODO: endpoint for aws s3
+#TODO: REMOVE UPDATE TOKEN STUFF. RE LOGIN IF EXPIRED
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
 

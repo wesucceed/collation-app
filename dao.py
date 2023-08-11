@@ -7,8 +7,7 @@ Helper file containing functions for accessing data in our database
 from db import Polling_Agent
 from db import Polling_Station
 from db import Polling_Station_Result
-from db import Constituency
-import db
+from db import db
 from twilioapp import sendmessage
 import secrets
 import string
@@ -46,10 +45,10 @@ def get_polling_agent_by_name(name):
     return True, polling_agent
 
 def get_polling_agent_by_session_token(session_token):
-    return Polling_Agent.query.filter(Polling_Agent.session_token == session_token)
+    return Polling_Agent.query.filter(Polling_Agent.session_token == session_token).first()
 
 def get_polling_agent_by_update_token(update_token):
-    return Polling_Agent.query.filter(Polling_Agent.update_token == update_token)
+    return Polling_Agent.query.filter(Polling_Agent.update_token == update_token).first()
 
 def get_polling_agent(name, phone_number):
     return Polling_Agent.query.filter(Polling_Agent.name == name , Polling_Agent.phone_number == phone_number)
@@ -145,13 +144,15 @@ def get_polling_station(name, number, constituency, region):
     """
     Returns a polling station
     """
+
     polling_station = Polling_Station.query.filter(
         Polling_Station.name == name,
         Polling_Station.number == number,
         Polling_Station.constituency == constituency,
         Polling_Station.region == region
-    )
+    ).first()
 
+    print("here: ", polling_station)
     if polling_station is None:
         return False, polling_station
 
@@ -164,7 +165,7 @@ def get_polling_agent(name, phone_number):
     """
     polling_agent = Polling_Agent.query.filter(Polling_Agent.name == name, 
                                                Polling_Agent.phone_number == phone_number
-                                               )
+                                               ).first()
 
     if polling_agent is None:
         return False, polling_agent
@@ -178,52 +179,71 @@ def get_polling_station_result_by_polling_station_id(polling_station_id):
     """
     polling_station_result = Polling_Station_Result.query.filter(
         Polling_Station_Result.polling_station_id == polling_station_id
-        )
+        ).first()
 
     if polling_station_result is None:
         return False, polling_station_result
 
     return True, polling_station_result
 
-# 4
-def get_all_results():
-    """
-    Returs all the polling station results
-    """
-    results = Polling_Station_Result.query.all()
-    return True, results
+
+
 
 
 ##### GET CONSTITUENCY #####
 # 1
 def get_result_by_constituency(name):
     """
-    Returns a constituency result by name
+    Returns constituency results by name
     """
-    results = Constituency.query.filter(Constituency.name == name).first()
+    
+    polling_stations = Polling_Station.query.filter(Polling_Station.constituency == name).all()
 
-    if results is None:
-        return False, results
+    if polling_stations is None:
+        return False, polling_stations
+    
+    acc = []
 
-    return True, results
+    for polling_station in polling_stations:
+        acc.append(polling_station.serialize())
+
+    return True, acc
 
 # 2
-def get_all_results_by_constituency():
+def get_all_results():
     """
-    Returns all results by constituency
+    Returns all results 
     """
-    results = Constituency.query.all()
-    return True, results
+    polling_stations = Polling_Station.query.all()
+
+    if polling_stations is None:
+        return False, polling_stations
+    
+    acc = []
+
+    for polling_station in polling_stations:
+        acc.append(polling_station.serialize())
+
+    return True, acc
 
 
 ##### GET REGION #####
 # 3
 def get_result_by_region(name):
     """
-    Returns a region result by name
+    Returns results by region
     """
-    results = Constituency.query.filter(Constituency.region == name)
-    return True, results
+    polling_stations = Polling_Station.query.filter(Polling_Station.region == name).all()
+
+    if polling_stations is None:
+        return False, polling_stations
+    
+    acc = []
+
+    for polling_station in polling_stations:
+        acc.append(polling_station.serialize())
+
+    return True, acc
 
 
 ##### VERIFICATION #####
@@ -255,9 +275,9 @@ def verify_login_credentials(name, password):
     """
     Returns true if the credentials match, otherwise returns false
     """
-    polling_agent = get_polling_agent_by_name(name)
+    success, polling_agent = get_polling_agent_by_name(name)
 
-    if polling_agent is  None:
+    if not success:
         return False, polling_agent
     
     return polling_agent.verify_password(password), polling_agent
