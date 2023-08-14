@@ -4,6 +4,7 @@ import os
 import pyotp
 
 
+
 import bcrypt
 from flask_sqlalchemy import SQLAlchemy
 
@@ -23,7 +24,7 @@ class Polling_Agent(db.Model):
     name = db.Column(db.String, nullable = False)
     phone_number = db.Column(db.String, nullable = False, unique = True)
     password_digest = db.Column(db.String, nullable= False, unique = True)
-    auto_password_digest = db.Column(db.String, nullable= False, unique = True)
+    totp_key_digest = db.Column(db.String, nullable= False, unique = True)
 
     is_verified = db.Column(db.Boolean, default = False, nullable =  False)  #TODO: HOW TO VERIFY
 
@@ -33,8 +34,6 @@ class Polling_Agent(db.Model):
     session_expiration = db.Column(db.DateTime, nullable=False)
     update_token = db.Column(db.String, nullable=False, unique=True)
 
-    # Totp
-    totp_uri = db.Column(db.String, unique = True, nullable = False)
 
     # Polling station result
     polling_station_result = db.relationship("Polling_Station_Result")  #TODO: cascade to be restrict
@@ -49,20 +48,12 @@ class Polling_Agent(db.Model):
         self.phone_number = kwargs.get("phone_number")
         self.password_digest = bcrypt.hashpw(kwargs.get("password").encode("utf8"), bcrypt.gensalt(rounds=13))
         self.polling_station_id = kwargs.get("polling_station_id")
-        self.auto_password_digest = bcrypt.hashpw(kwargs.get("auto_password").encode("utf8"), bcrypt.gensalt(rounds=13))
+        self.totp_key_digest = bcrypt.hashpw(kwargs.get("totp_key").encode("utf8"), bcrypt.gensalt(rounds=13))
         self.renew_session()
-        self.renew_totp()
 
 
     def verify_polling_agent(self, name, phone_number):
         return self.name == name and self.phone_number == phone_number
-    
-    def get_totp(self):
-        """
-        Get time otp
-        """
-        totp = pyotp.parse_uri(self.totp_uri)
-        return totp.now()
 
 
     def serialize(self):
@@ -70,29 +61,18 @@ class Polling_Agent(db.Model):
         Returns a serialized polling agent
         """
         res = {
+            "id" : self.id,
             "name" : self.name,
             "polling_station_id" : self.polling_station_id,
             "polling_station_results" : [result.serialize() for result in self.polling_station_result] #TODO: serializing 1:1 well?
         }
         return res
-    
-    def verify_totp(self, code):
-        totp = pyotp.parse_uri(self.totp_uri).now()
-        return code == totp
-
 
     def _urlsafe_base_64(self):
         """
         Randomly generates hashed tokens (used for session/update tokens)
         """
         return hashlib.sha1(os.urandom(64)).hexdigest()
-
-    def renew_totp(self):
-        """
-        Renews totp
-        """
-        totp = pyotp.TOTP(pyotp.random_base32(), interval= 15)  
-        self.totp_uri = totp.provisioning_uri() #TODO: is it safe to store prov uri in database
     
     def renew_session(self):
         """
@@ -107,25 +87,22 @@ class Polling_Agent(db.Model):
         Verifies the password of a polling agent
         """
         return bcrypt.checkpw(password.encode("utf8"), self.password_digest)
+
     
-    def verify_auto_password(self, auto_password):
+    def verify_totp_key(self, totp_key, totp_value):
         """
         Verifies the auto password of a polling agent
         """
-        return bcrypt.checkpw(auto_password.encode("utf8"), self.auto_password_digest)
-
+        if not bcrypt.checkpw(totp_key.encode("utf8"), self.totp_key_digest):
+            return False
+        return pyotp.TOTP(totp_key, interval= 15).verify(totp_value)
+    
     def verify_session_token(self, session_token):
         """
         Verifies the session token of a user
         """
 
         return session_token == self.session_token and datetime.datetime.now() < self.session_expiration
-
-    def verify_update_token(self, update_token):
-        """
-        Verifies the update token of a user
-        """
-        return update_token == self.update_token
         
 def load_polling_stations():
     """

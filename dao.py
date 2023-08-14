@@ -9,29 +9,61 @@ from db import Polling_Station
 from db import Polling_Station_Result
 from db import db
 from twilioapp import sendmessage
-import secrets
-import string
+
 import os
 from dotenv import load_dotenv
 load_dotenv()
+import pyotp
+import qrcode
+from PIL import Image, ImageDraw, ImageFont
 
 
-def generate_password(length=8):
-    characters = string.ascii_letters + string.digits + string.punctuation
-    password = ''.join(secrets.choice(characters) for i in range(length))
-    return password
 
-#generate password function and send to admin for verification
-def get_polling_agent_by_id(id, password):
+def gen_totp_key():
+    return pyotp.random_base32()
+
+def gen_totp_uri(key, polling_agent_name):
+    return pyotp.totp.TOTP(key, interval= 15).provisioning_uri(name=polling_agent_name, issuer_name="Collation App")
+
+def gen_qrcode(data, content, name, id):
+    qr = qrcode.QRCode(
+        version=1,  # QR code version (1 to 40)
+        error_correction=qrcode.constants.ERROR_CORRECT_L,  # Error correction level (L, M, Q, H)
+        box_size=10,  # Size of each box (pixels)
+        border=4,    # Border size (boxes)
+    )
+
+
+    # Add data to the QR code
+    qr.add_data(data)
+    qr.make(fit=True)
+
+    # Create an image from the QR code instance
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    title = f"{content}-{name}-{id}"
+    # Add a title to the image
+    font = ImageFont.load_default()
+    draw = ImageDraw.Draw(img)
+    text_width = text_height = font.getlength(title)
+    x = (img.size[0] - text_width) // 2
+    y = img.size[1]//25  # Adjust the y-coordinate as needed
+    draw.text((x, y), title, font=font, fill="black")
+
+    img.save(f"{title}.png")
+
+
+
+def get_polling_agent_by_id(id):
     """
     Returns polling agent given an id
     """
     polling_agent = Polling_Agent.query.filter(Polling_Agent.id == id).first()
 
     if polling_agent is None:
-        return polling_agent
+        return False, polling_agent
 
-    return polling_agent
+    return True, polling_agent
 
 def get_polling_agent_by_name(name):
     """
@@ -73,33 +105,38 @@ def create_polling_agent(name, phone_number, password, polling_station_id):
     if exists:
         return False, polling_agent
     
-    auto_password = generate_password()
+    totp_key = gen_totp_key()
 
     polling_agent = Polling_Agent(name = name, 
                                   phone_number = phone_number, 
                                   password = password, 
                                   polling_station_id = polling_station_id, 
-                                  auto_password = auto_password)
+                                  totp_key = totp_key)
     
     if not polling_agent:
         return False, polling_agent
     
+    gen_qrcode(gen_totp_uri(totp_key, polling_agent.name), "uri", polling_agent.name, polling_station_id)
+    gen_qrcode(totp_key, "key", polling_agent.name, polling_station_id)
 
     db.session.add(polling_agent)
     db.session.commit()
+
+
+
 
     return True, polling_agent
     
 
     
 
-def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_id, auto_password):
+def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_id, totp_key):
     """
     Creates a Polling Station Result 
     """
-    #TODO: if not verified, verify with auto_password before submission
+    #TODO: if not verified, verify with totp_key before submission
     #TODO: check if polling agent sending to right station
-    verified, polling_agent = verify_auto_password(auto_password, polling_agent_id)
+    verified, polling_agent = verify_totp_key(totp_key, polling_agent_id)
 
     if not verified:
         return False, polling_agent
@@ -152,7 +189,6 @@ def get_polling_station(name, number, constituency, region):
         Polling_Station.region == region
     ).first()
 
-    print("here: ", polling_station)
     if polling_station is None:
         return False, polling_station
 
@@ -259,16 +295,15 @@ def verify_sms_code(verification_code, polling_agent_id):
     return True, user
 
 
-def verify_auto_password(auto_password, polling_agent_id):
+def verify_totp_key(totp_key, totp_value, polling_agent_id):
     """
-    Verifies auto password
+    Verifies totp
     """
-    polling_agent = get_polling_agent_by_id(polling_agent_id)
+    success, polling_agent = get_polling_agent_by_id(polling_agent_id)
 
-    if polling_agent is  None:
+    if not success:
         return False, polling_agent
-
-    return polling_agent.verify_auto_password(auto_password), polling_agent
+    return polling_agent.verify_totp_key(totp_key, totp_value), polling_agent
 
 
 def verify_login_credentials(name, password):
@@ -276,7 +311,6 @@ def verify_login_credentials(name, password):
     Returns true if the credentials match, otherwise returns false
     """
     success, polling_agent = get_polling_agent_by_name(name)
-
     if not success:
         return False, polling_agent
     

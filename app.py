@@ -17,7 +17,7 @@ app.config["SQLALCHEMY_ECHO"] = True
 
 db.init_app(app)
 with app.app_context():
-    db.drop_all()
+    # db.drop_all()
     db.create_all()
     
 # generalized response formats
@@ -236,8 +236,11 @@ def login_by_polling_agent():
     firstname = body.get("firstname")
     lastname = body.get("lastname")
     password = body.get("password")
+    
+    totp_key = body.get("totp_key")
+    totp_value = body.get("totp_value")
 
-    if not (firstname and lastname and password):
+    if not (firstname and lastname and password and totp_key and totp_value):
         return failure_response("Invalid inputs", 400)
     
     name = firstname + " " + lastname
@@ -245,6 +248,10 @@ def login_by_polling_agent():
 
     if not success:
         return failure_response("Invalid credentials")
+    success, polling_agent = dao.verify_totp_key(totp_key, totp_value, polling_agent.id)
+
+    if not success:
+        return failure_response("Invalid Totp")
     
     res = {
         "session_token" : polling_agent.session_token
@@ -318,8 +325,8 @@ def send_2fa_code():
 #if the polling agent has to be replaced, we will do that
 # endpoint for admin creation and login 
 #TODO: endpoint to send results on regular intervals 
-#TODO: endpoint for aws s3
 #TODO: REMOVE UPDATE TOKEN STUFF. RE LOGIN IF EXPIRED
+#TODO: generate QR code
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
 
