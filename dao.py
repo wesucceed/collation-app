@@ -27,27 +27,24 @@ def gen_totp_uri(key, polling_agent_name):
 
 def gen_qrcode(data, content, name, id):
     qr = qrcode.QRCode(
-        version=1,  # QR code version (1 to 40)
-        error_correction=qrcode.constants.ERROR_CORRECT_L,  # Error correction level (L, M, Q, H)
-        box_size=10,  # Size of each box (pixels)
-        border=4,    # Border size (boxes)
+        version=1,  
+        error_correction=qrcode.constants.ERROR_CORRECT_L,  
+        box_size=10,  
+        border=4,    
     )
 
 
-    # Add data to the QR code
     qr.add_data(data)
     qr.make(fit=True)
 
-    # Create an image from the QR code instance
     img = qr.make_image(fill_color="black", back_color="white")
 
     title = f"{content}-{name}-{id}"
-    # Add a title to the image
     font = ImageFont.load_default()
     draw = ImageDraw.Draw(img)
     text_width = text_height = font.getlength(title)
     x = (img.size[0] - text_width) // 2
-    y = img.size[1]//25  # Adjust the y-coordinate as needed
+    y = img.size[1]//25  
     draw.text((x, y), title, font=font, fill="black")
 
     img.save(f"{title}.png")
@@ -79,21 +76,17 @@ def get_polling_agent_by_name(name):
 def get_polling_agent_by_session_token(session_token):
     return Polling_Agent.query.filter(Polling_Agent.session_token == session_token).first()
 
-def get_polling_agent_by_update_token(update_token):
-    return Polling_Agent.query.filter(Polling_Agent.update_token == update_token).first()
-
 def get_polling_agent(name, phone_number):
     return Polling_Agent.query.filter(Polling_Agent.name == name , Polling_Agent.phone_number == phone_number)
 
-def renew_session(update_token):
+def renew_session(polling_agent):
     """
     Renews session
     """
-    polling_agent = get_polling_agent_by_update_token(update_token)
 
-    if not polling_agent:
-        return None
     polling_agent.renew_session()
+    db.session.commit()
+
     return polling_agent
 
 
@@ -129,8 +122,15 @@ def create_polling_agent(name, phone_number, password, polling_station_id):
     
 
     
-
-def create_polling_station_result(name, number, constituency, region, votes, rejected_ballots, valid_ballots, total_votes, pink_sheet, polling_agent_id, totp_key):
+# TODO: work on this
+def create_polling_station_result(data,
+                                  total_votes_cast, 
+                                  total_rejected_ballots,
+                                  total_valid_ballots, 
+                                  pink_sheet, 
+                                  polling_agent_id, 
+                                  polling_station_id,
+                                  auto_password):
     """
     Creates a Polling Station Result 
     """

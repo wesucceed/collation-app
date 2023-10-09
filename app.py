@@ -141,7 +141,7 @@ def create_polling_stations():
     if not success:
         return failure_response("Couldn't load polling stations", 400)
     
-    return success_response("Loading success", 201) #TODO: how to use excel input
+    return success_response("Created polling stations", 201) 
 
 
 @app.route("/pollingagent/", methods = ["POST"])
@@ -184,13 +184,13 @@ def create_polling_agent():
     return success_response(res, 201)
 
 
+
+# TODO: WORK ON THIS
 @app.route("/submitresult/<int:polling_agent_id>/", methods = ["POST"])
 def submit_result(polling_agent_id):
     """
     Endpoint to create a result
     """
-    # verify session
-    # get inputs
     body = json.loads(request.data)
     
     data = body.get("data")
@@ -200,15 +200,13 @@ def submit_result(polling_agent_id):
     pink_sheet = body.get("pinksheet")
     auto_password = body.get("auto_password")
     polling_station_id = body.get("polling_station_id")
+    data, success_code = secret_message()
 
-    #TODO: how to do 2fa verification
+    if success_code != 201 or json.loads(data) != "Session verified!":
+        return failure_response("Session expired", 400)
 
-    # success, polling_agent = dao.verify_sms_code(code, polling_agent_id)
-
-    # if not success:
-    #     return failure_response("Invalid verification code!")
-
-    if not (data and total_rejected_ballots and total_votes_cast and total_valid_ballots and pink_sheet and auto_password):
+    provided_all_data = data and total_rejected_ballots and total_votes_cast and total_valid_ballots and pink_sheet and auto_password and polling_station_id
+    if not (provided_all_data):
         return failure_response("Invalid inputs!", 400)
     
     created, polling_station_result = dao.create_polling_station_result(data, 
@@ -253,6 +251,8 @@ def login_by_polling_agent():
     if not success:
         return failure_response("Invalid Totp")
     
+    dao.renew_session(polling_agent)
+    
     res = {
         "session_token" : polling_agent.session_token
     }
@@ -291,33 +291,12 @@ def secret_message():
         return failure_response(session_token)
     
     polling_agent = dao.get_polling_agent_by_session_token(session_token)
-
     if not polling_agent or not polling_agent.verify_session_token(session_token):
         return failure_response("Invalid session token")
     
     return success_response("Session verified!", 201)
 
 
-@app.route("/send2facode/")
-def send_2fa_code():
-    """
-    Endpoint to send vefication token via sms
-    """
-    success, session_token = extract_token(request)
-    if not success:
-        return failure_response(session_token)
-    
-    polling_agent = dao.get_polling_agent_by_session_token(session_token)
-
-    if not polling_agent or not polling_agent.verify_session_token(session_token):
-        return failure_response("Invalid session token")
-    
-    sent = sendmessage(polling_agent.phone_number, polling_agent.get_totp())
-
-    if not sent:
-        return failure_response("Could not send 2fa code")
-    
-    return success_response("2fa code sent!")
     
 
 #endpoint to create an acc
@@ -325,8 +304,6 @@ def send_2fa_code():
 #if the polling agent has to be replaced, we will do that
 # endpoint for admin creation and login 
 #TODO: endpoint to send results on regular intervals 
-#TODO: REMOVE UPDATE TOKEN STUFF. RE LOGIN IF EXPIRED
-#TODO: generate QR code
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
 
