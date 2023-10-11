@@ -111,7 +111,7 @@ def load_polling_stations():
     stations.xlsx must contain name, number, constituency and region columns
     """
 
-    polling_stations_df = read_excel('stations.xlsx')
+    polling_stations_df = read_excel('polling_stations.xlsx')
 
     # Specify the table name and the SQLAlchemy engine
     engine = db.get_engine()
